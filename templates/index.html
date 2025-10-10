@@ -12,6 +12,9 @@
         button:disabled { background-color: #ccc; cursor: not-allowed; }
         .btn-secondary { background-color: #6c757d; }
         .btn-secondary:hover:not(:disabled) { background-color: #5a6268; }
+        /* --- НОВЫЙ СТИЛЬ ДЛЯ КРАСНОЙ КНОПКИ --- */
+        .btn-danger { background-color: #dc3545; }
+        .btn-danger:hover:not(:disabled) { background-color: #c82333; }
         input[type="text"] { width: 80%; padding: 10px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 10px; font-size: 1em; }
         h1, h2, h3 { margin-top: 0; }
         #registration-status, #game-status, #pvp-status { min-height: 1.2em; margin-bottom: 10px; font-size: 0.9em; }
@@ -25,8 +28,8 @@
         #leaderboard-table th, #leaderboard-table td, #game-history-table th, #game-history-table td { padding: 8px 12px; border-bottom: 1px solid #eee; }
         #leaderboard-table th, #game-history-table th { background-color: #f8f9fa; text-align: left;}
         #leaderboard-table tr:last-child td, #game-history-table tr:last-child td { border-bottom: none; }
-        #surrender-btn { background-color: #dc3545; font-size: 0.8em; padding: 6px 12px; margin-top: 10px; }
-        #surrender-btn:hover:not(:disabled) { background-color: #c82333; }
+        /* Убираем красный цвет по умолчанию */
+        #surrender-btn { font-size: 0.8em; padding: 6px 12px; margin-top: 10px; }
         .summary-layout { margin-top: 15px; }
         .summary-columns { display: flex; justify-content: space-around; text-align: left; gap: 15px; }
         .summary-column { flex: 1; min-width: 0; }
@@ -80,7 +83,7 @@
             <button type="submit" id="submit-guess-btn">Ответить</button>
         </form>
         <div class="players-list" id="live-named-list"></div>
-        <button id="surrender-btn">Сдаться</button>
+        <button id="surrender-btn" class="btn-secondary">Сдаться</button>
     </div>
     <div id="summary-screen" class="container hidden">
         <h3 id="summaryHeader"></h3>
@@ -126,10 +129,8 @@
         
         function showScreen(screenName) { Object.values(screens).forEach(screen => screen.classList.add('hidden')); if (screens[screenName]) screens[screenName].classList.remove('hidden'); }
         
-        // --- ИЗМЕНЕНИЕ: Полностью переработанная функция ---
         function updateGameUI(state) {
             clientState = state;
-            // Обновление статической информации
             gameHeader.textContent = `Тур ${state.round}/${state.totalRounds}: ${state.clubName}`;
             if (state.mode === 'solo' || !state.players[1]) {
                 scoreDisplay.classList.add('hidden');
@@ -144,14 +145,11 @@
                 pDiv.textContent = author ? `${player.name} (${author})` : player.name;
                 liveNamedList.appendChild(pDiv);
             });
-
-            // Обновление таймера
             clearInterval(timerInterval);
             let timeLeft = state.timeLimit;
             timerDiv.textContent = timeLeft;
             timerInterval = setInterval(() => { timeLeft--; timerDiv.textContent = timeLeft >= 0 ? timeLeft : 0; if (timeLeft < 0) clearInterval(timerInterval); }, 1000);
 
-            // Главная логика блокировки интерфейса
             const myTurn = (socket.id === state.players[state.currentPlayerIndex].sid);
             if (myTurn) {
                 guessInput.disabled = false;
@@ -160,6 +158,9 @@
                 guessInput.placeholder = 'Введите фамилию...';
                 gameStatus.textContent = 'Ваш ход...';
                 guessInput.focus();
+                // --- ИЗМЕНЕНИЕ: Управляем цветом кнопки ---
+                surrenderBtn.classList.remove('btn-secondary');
+                surrenderBtn.classList.add('btn-danger');
             } else {
                 guessInput.disabled = true;
                 submitGuessBtn.disabled = true;
@@ -167,6 +168,9 @@
                 guessInput.placeholder = 'Ход соперника...';
                 const opponentName = state.players[state.currentPlayerIndex].nickname;
                 gameStatus.textContent = `Ожидаем ход игрока ${opponentName}...`;
+                // --- ИЗМЕНЕНИЕ: Управляем цветом кнопки ---
+                surrenderBtn.classList.remove('btn-danger');
+                surrenderBtn.classList.add('btn-secondary');
             }
         }
 
@@ -220,7 +224,15 @@
             else gameStatus.textContent = '❌ Неверно!';
         });
         socket.on('bot_guessed', (data) => { gameStatus.textContent = `Бот назвал: ${data.guess}`; });
-        socket.on('timer_expired', () => { clearInterval(timerInterval); gameStatus.textContent = '⏱️ Время вышло!'; guessInput.disabled = true; submitGuessBtn.disabled = true; surrenderBtn.disabled = true; });
+        socket.on('timer_expired', () => {
+            clearInterval(timerInterval);
+            gameStatus.textContent = '⏱️ Время вышло!';
+            guessInput.disabled = true;
+            submitGuessBtn.disabled = true;
+            surrenderBtn.disabled = true;
+            surrenderBtn.classList.remove('btn-danger');
+            surrenderBtn.classList.add('btn-secondary');
+        });
         socket.on('round_summary', (data) => {
             showScreen('summary');
             if (data.mode === 'solo' || data.mode === 'vs_bot' || data.mode === 'pvp') { skipPauseBtn.classList.remove('hidden'); skipPauseBtn.disabled = false; skipPauseBtn.textContent = 'Пропустить'; } 
