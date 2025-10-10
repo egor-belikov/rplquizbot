@@ -1,4 +1,9 @@
-# server.py (версия 24 - Исправление создания БД на сервере)
+# server.py (версия 26 - Eventlet Monkey Patch)
+
+# --- ИЗМЕНЕНИЕ: Добавляем monkey_patch в самое начало ---
+# Это должно быть сделано до импорта любых других стандартных модулей.
+import eventlet
+eventlet.monkey_patch()
 
 import os, csv, uuid, random
 from flask import Flask, render_template, request
@@ -6,6 +11,7 @@ from flask_socketio import SocketIO, emit, join_room
 from flask_sqlalchemy import SQLAlchemy
 from fuzzywuzzy import fuzz
 from glicko2 import Player
+from sqlalchemy.pool import NullPool
 
 # Константы
 TOTAL_ROUNDS = 16
@@ -22,6 +28,7 @@ if DATABASE_URL:
     app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 else:
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'game.db')
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = { 'poolclass': NullPool }
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
@@ -34,9 +41,6 @@ class User(db.Model):
     rd = db.Column(db.Float, default=350)
     vol = db.Column(db.Float, default=0.06)
 
-# --- ИЗМЕНЕНИЕ: Инициализация БД перенесена сюда ---
-# Этот блок кода теперь будет выполняться при каждом запуске сервера,
-# гарантируя, что таблицы в базе данных существуют.
 with app.app_context():
     db.create_all()
 
@@ -60,7 +64,6 @@ def update_ratings(winner_user, loser_user):
         db.session.commit()
         print(f"Рейтинги обновлены: {winner_user.nickname} ({int(winner_user.rating)}), {loser_user.nickname} ({int(loser_user.rating)})")
 
-# ... (Остальной код до if __name__ == '__main__' остается без изменений)
 def load_player_data(filename):
     clubs_data = {}
     with open(filename, mode='r', encoding='utf-8') as infile:
@@ -233,7 +236,7 @@ def handle_start_game(data):
             with app.app_context():
                 bot_user = get_or_create_user('Робо-Квинси')
             player2_info = {'sid': 'BOT', 'nickname': 'Робо-Квинси', 'user_obj': bot_user}
-        game = GameState(player_info, all_clubs_data, player2_info=player2_info, mode=mode)
+        game = GameState(player1_info, all_clubs_data, player2_info=player2_info, mode=mode)
         active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None}
         start_game_loop(room_id)
     elif mode == 'pvp':
@@ -310,7 +313,6 @@ def bot_turn(room_id):
 def index(): return render_template('index.html')
 
 if __name__ == '__main__':
-    # --- ИЗМЕНЕНИЕ: Убрали создание таблиц отсюда ---
     all_clubs_data = load_player_data('players.csv')
     if not all_clubs_data: print("КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить players.csv")
     else:
