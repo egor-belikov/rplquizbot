@@ -34,18 +34,14 @@
         .summary-players-list { max-height: 120px; overflow-y: auto; background-color: #f8f9fa; padding: 8px; border-radius: 8px; font-size: 0.9em; }
         #summary-remaining-container h3 { margin-top: 15px; margin-bottom: 5px; }
         #skip-pause-btn { font-size: 0.9em; padding: 8px 16px; margin-top: 10px; }
-        .searching-status::after {
-            display: inline-block;
-            animation: ellipsis 1.5s infinite;
-            content: ".";
-            width: 1em;
-            text-align: left;
-        }
-        @keyframes ellipsis {
-            0% { content: "."; }
-            33% { content: ".."; }
-            66% { content: "..."; }
-        }
+        .searching-status::after { display: inline-block; animation: ellipsis 1.5s infinite; content: "."; width: 1em; text-align: left; }
+        @keyframes ellipsis { 0% { content: "."; } 33% { content: ".."; } 66% { content: "..."; } }
+        /* Новые стили */
+        #early-end-explanation { font-size: 0.9em; color: #6c757d; margin-top: -10px; margin-bottom: 10px; }
+        #rating-changes-display { margin-top: 15px; font-size: 0.9em; }
+        .rating-change { margin-bottom: 5px; }
+        .rating-positive { color: #28a745; }
+        .rating-negative { color: #dc3545; }
     </style>
 </head>
 <body>
@@ -101,8 +97,10 @@
         <button id="skip-pause-btn" class="btn-secondary">Пропустить</button>
     </div>
     <div id="game-over-screen" class="container hidden">
-        <h1>Игра окончена!</h1>
+        <h1 id="game-over-title">Игра окончена!</h1>
+        <p id="early-end-explanation" class="hidden"></p>
         <h2 id="final-score-display"></h2>
+        <div id="rating-changes-display" class="hidden"></div>
         <h3>История раундов:</h3>
         <div style="max-height: 300px; overflow-y: auto;">
             <table id="game-history-table">
@@ -112,6 +110,7 @@
         </div>
         <button id="back-to-menu-from-game-over" class="btn-secondary">В главное меню</button>
     </div>
+
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         const socket = io();
@@ -121,13 +120,18 @@
         const soloBtn = document.getElementById('solo-btn'), vsBotBtn = document.getElementById('vs-bot-btn'), leaderboardBtn = document.getElementById('leaderboard-btn'), backToMenuBtn = document.getElementById('back-to-menu-btn'), leaderboardBody = document.getElementById('leaderboard-body'), pvpBtn = document.getElementById('pvp-btn'), pvpStatus = document.getElementById('pvp-status'), cancelPvpBtn = document.getElementById('cancel-pvp-btn');
         const gameHeader = document.getElementById('gameHeader'), scoreDisplay = document.getElementById('score-display'), timerDiv = document.getElementById('timer'), gameStatus = document.getElementById('game-status'), guessForm = document.getElementById('guess-form'), guessInput = document.getElementById('guess-input'), liveNamedList = document.getElementById('live-named-list'), surrenderBtn = document.getElementById('surrender-btn');
         const summaryHeader = document.getElementById('summaryHeader'), summaryScoreDisplay = document.getElementById('summary-score-display'), summaryHumanColumn = document.getElementById('summary-human-column'), summaryBotColumn = document.getElementById('summary-bot-column'), summaryHumanNameHeader = document.getElementById('summary-human-name-header'), summaryBotNameHeader = document.getElementById('summary-bot-name-header'), summaryHumanNamedList = document.getElementById('summary-human-named-list'), summaryBotNamedList = document.getElementById('summary-bot-named-list'), summaryRemainingList = document.getElementById('summary-remaining-list'), summaryCountdown = document.getElementById('summary-countdown'), skipPauseBtn = document.getElementById('skip-pause-btn');
-        const finalScoreDisplay = document.getElementById('final-score-display'), gameHistoryTable = document.getElementById('game-history-table'), backToMenuFromGameOverBtn = document.getElementById('back-to-menu-from-game-over');
+        const gameOverTitle = document.getElementById('game-over-title'), earlyEndExplanation = document.getElementById('early-end-explanation'), finalScoreDisplay = document.getElementById('final-score-display'), ratingChangesDisplay = document.getElementById('rating-changes-display'), gameHistoryTable = document.getElementById('game-history-table'), backToMenuFromGameOverBtn = document.getElementById('back-to-menu-from-game-over');
         
         function showScreen(screenName) { Object.values(screens).forEach(screen => screen.classList.add('hidden')); if (screens[screenName]) screens[screenName].classList.remove('hidden'); }
         function updateGameUI(state) {
             clientState = state;
             gameHeader.textContent = `Тур ${state.round}/${state.totalRounds}: ${state.clubName}`;
-            if (state.mode === 'solo' || !state.players[1]) { scoreDisplay.classList.add('hidden'); } else { scoreDisplay.classList.remove('hidden'); scoreDisplay.textContent = `${state.players[0].nickname} ${state.scores[0]} : ${state.scores[1]} ${state.players[1].nickname}`; }
+            if (state.mode === 'solo' || !state.players[1]) {
+                scoreDisplay.classList.add('hidden');
+            } else {
+                scoreDisplay.classList.remove('hidden');
+                scoreDisplay.textContent = `${state.players[0].nickname} ${state.scores[0]} : ${state.scores[1]} ${state.players[1].nickname}`;
+            }
             liveNamedList.innerHTML = '';
             state.namedPlayers.forEach(player => {
                 const pDiv = document.createElement('div'); pDiv.className = 'player-name';
@@ -164,14 +168,15 @@
         pvpBtn.addEventListener('click', () => startGame('pvp'));
         leaderboardBtn.addEventListener('click', () => socket.emit('get_leaderboard'));
         backToMenuBtn.addEventListener('click', () => resetMenu() & showScreen('mainMenu'));
-        cancelPvpBtn.addEventListener('click', () => {
-            socket.emit('cancel_pvp_search');
-            resetMenu();
-        });
+        cancelPvpBtn.addEventListener('click', () => { socket.emit('cancel_pvp_search'); resetMenu(); });
         guessForm.addEventListener('submit', (e) => { e.preventDefault(); const guess = guessInput.value; if (guess) { socket.emit('submit_guess', { roomId: clientState.roomId, guess: guess }); guessInput.value = ''; } });
         surrenderBtn.addEventListener('click', () => { gameStatus.textContent = "Вы сдались..."; guessInput.disabled = true; surrenderBtn.disabled = true; socket.emit('surrender_round', { roomId: clientState.roomId }); });
         backToMenuFromGameOverBtn.addEventListener('click', () => resetMenu() & showScreen('mainMenu'));
-        skipPauseBtn.addEventListener('click', () => { skipPauseBtn.disabled = true; socket.emit('skip_pause', { roomId: clientState.roomId }); });
+        skipPauseBtn.addEventListener('click', () => {
+            skipPauseBtn.disabled = true;
+            if(clientState.mode === 'pvp') { skipPauseBtn.textContent = 'Ожидаем соперника...'; }
+            socket.emit('request_skip_pause', { roomId: clientState.roomId });
+        });
         
         socket.on('registration_status', (data) => { if (data.success) { currentUserNickname = data.nickname; localStorage.setItem('rpl_quiz_nickname', currentUserNickname); welcomeNickname.textContent = currentUserNickname; showScreen('mainMenu'); } else { registrationStatus.textContent = data.message; registrationStatus.className = 'error-message'; } });
         socket.on('leaderboard_data', (data) => {
@@ -192,8 +197,9 @@
         socket.on('timer_expired', () => { clearInterval(timerInterval); gameStatus.textContent = '⏱️ Время вышло!'; guessInput.disabled = true; surrenderBtn.disabled = true; });
         socket.on('round_summary', (data) => {
             showScreen('summary');
-            if (data.mode === 'solo' || data.mode === 'vs_bot') { skipPauseBtn.classList.remove('hidden'); skipPauseBtn.disabled = false; } 
-            else { skipPauseBtn.classList.add('hidden'); }
+            skipPauseBtn.classList.remove('hidden');
+            skipPauseBtn.disabled = false;
+            skipPauseBtn.textContent = 'Пропустить';
             summaryHeader.textContent = `Итоги раунда: ${data.clubName}`;
             if (data.mode === 'solo') {
                 summaryScoreDisplay.classList.add('hidden');
@@ -220,17 +226,57 @@
             });
             let countdown = 10;
             summaryCountdown.textContent = countdown;
-            const summaryInterval = setInterval(() => {
+            let summaryInterval = setInterval(() => {
                 countdown--;
                 summaryCountdown.textContent = countdown >= 0 ? countdown : 0;
                 if (countdown < 0) clearInterval(summaryInterval);
             }, 1000);
         });
+        socket.on('skip_vote_accepted', () => { skipPauseBtn.textContent = '✓ Ждем второго...'; });
+        socket.on('skip_vote_update', (data) => { if (clientState.mode === 'pvp') { skipPauseBtn.textContent = `Пропустить (${data.count}/2)`; } });
+        
         socket.on('game_over', (data) => {
             showScreen('gameOver');
             const player1Name = data.players[0].nickname;
             const player2Name = (data.players[1]) ? data.players[1].nickname : 'Бот';
+            
+            // Заголовок
+            if (data.final_scores[0] > data.final_scores[1]) {
+                gameOverTitle.textContent = `🏆 Победил ${player1Name}!`;
+            } else if (data.final_scores[1] > data.final_scores[0]) {
+                gameOverTitle.textContent = `🏆 Победил ${player2Name}!`;
+            } else {
+                gameOverTitle.textContent = "🤝 Ничья!";
+            }
+            
+            // Объяснение досрочного завершения
+            if (data.end_reason === 'unreachable_score') {
+                earlyEndExplanation.textContent = 'Игра завершена досрочно, так как разница в счете стала больше, чем количество оставшихся раундов.';
+                earlyEndExplanation.classList.remove('hidden');
+            } else {
+                earlyEndExplanation.classList.add('hidden');
+            }
+
+            // Финальный счет
             finalScoreDisplay.textContent = `${player1Name} ${data.final_scores[0]} : ${data.final_scores[1]} ${player2Name}`;
+            
+            // Изменения рейтинга
+            if (data.mode === 'pvp' && data.rating_changes) {
+                const p1_change = data.rating_changes.p1.new - data.rating_changes.p1.old;
+                const p2_change = data.rating_changes.p2.new - data.rating_changes.p2.old;
+                const p1_sign = p1_change >= 0 ? '+' : '';
+                const p2_sign = p2_change >= 0 ? '+' : '';
+                
+                ratingChangesDisplay.innerHTML = `
+                    <div class="rating-change">${player1Name}: ${data.rating_changes.p1.old} → ${data.rating_changes.p1.new} (<span class="${p1_change >= 0 ? 'rating-positive':'rating-negative'}">${p1_sign}${p1_change}</span>)</div>
+                    <div class="rating-change">${player2Name}: ${data.rating_changes.p2.old} → ${data.rating_changes.p2.new} (<span class="${p2_change >= 0 ? 'rating-positive':'rating-negative'}">${p2_sign}${p2_change}</span>)</div>
+                `;
+                ratingChangesDisplay.classList.remove('hidden');
+            } else {
+                ratingChangesDisplay.classList.add('hidden');
+            }
+
+            // История раундов
             const tableHead = gameHistoryTable.querySelector('thead');
             if (data.mode === 'solo') {
                 tableHead.innerHTML = `<tr><th>Клуб</th><th>Названо игроков</th></tr>`;

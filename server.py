@@ -1,4 +1,4 @@
-# server.py (версия 26 - Убран лишний monkey_patch)
+# server.py (версия 29 - Улучшенные итоги игры)
 
 import os, csv, uuid, random
 from flask import Flask, render_template, request
@@ -26,9 +26,6 @@ else:
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = { 'poolclass': NullPool }
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
-# Gunicorn с --worker-class eventlet сам сделает monkey-patching,
-# поэтому SocketIO нужно инициализировать без явного указания async_mode.
-# Но для совместимости с локальным запуском оставим eventlet.
 socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
 
 # Модель Базы Данных
@@ -58,7 +55,7 @@ def update_ratings(winner_user, loser_user):
         winner_player.update_player([loser_player.rating], [loser_player.rd], [1])
         loser_player.update_player([winner_player.rating], [winner_player.rd], [0])
         winner_user.rating, winner_user.rd, winner_user.vol = winner_player.rating, winner_player.rd, winner_player.vol
-        loser_user.rating, loser_user.rd, loser_user.vol = loser_player.rating, loser_player.rd, loser_player.vol
+        loser_user.rating, loser_user.rd, loser_user.vol = loser_player.rating, loser_player.rd, loser_user.vol
         db.session.commit()
         print(f"Рейтинги обновлены: {winner_user.nickname} ({int(winner_user.rating)}), {loser_user.nickname} ({int(loser_user.rating)})")
 
@@ -92,6 +89,8 @@ class GameState:
         self.current_round, self.current_player_index, self.current_club_name = -1, 0, None
         self.players_for_comparison, self.named_players_primary, self.named_players = [], set(), []
         self.round_history = []
+        self.end_reason = 'normal' # Причина окончания игры
+
     def start_new_round(self):
         if self.is_game_over(): return False
         self.current_round += 1
@@ -120,7 +119,19 @@ class GameState:
         if self.mode != 'solo': self.switch_player()
     def switch_player(self): self.current_player_index = 1 - self.current_player_index
     def is_round_over(self): return len(self.named_players) == len(self.players_for_comparison)
-    def is_game_over(self): return self.current_round >= TOTAL_ROUNDS - 1
+    
+    # --- ИЗМЕНЕНИЕ: Логика досрочного завершения игры ---
+    def is_game_over(self):
+        if self.current_round >= TOTAL_ROUNDS - 1:
+            self.end_reason = 'normal'
+            return True
+        if len(self.players) > 1:
+            score_diff = abs(self.scores[0] - self.scores[1])
+            rounds_left = TOTAL_ROUNDS - (self.current_round + 1)
+            if score_diff > rounds_left:
+                self.end_reason = 'unreachable_score'
+                return True
+        return False
 
 active_games = {}
 lobby_players = {}
@@ -156,14 +167,30 @@ def start_game_loop(room_id):
     if not game_session: return
     game = game_session['game']
     if not game.start_new_round():
-        game_over_data = { 'final_scores': game.scores, 'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 'history': game.round_history, 'mode': game.mode }
-        socketio.emit('game_over', game_over_data, room=room_id)
+        game_over_data = {
+            'final_scores': game.scores,
+            'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()},
+            'history': game.round_history,
+            'mode': game.mode,
+            'end_reason': game.end_reason
+        }
         if game.mode == 'pvp':
             player1, player2 = game.players[0]['user_obj'], game.players[1]['user_obj']
+            p1_old_rating = int(player1.rating)
+            p2_old_rating = int(player2.rating)
+            
             if game.scores[0] > game.scores[1]: update_ratings(winner_user=player1, loser_user=player2)
             elif game.scores[1] > game.scores[0]: update_ratings(winner_user=player2, loser_user=player1)
+            
+            game_over_data['rating_changes'] = {
+                'p1': {'old': p1_old_rating, 'new': int(player1.rating)},
+                'p2': {'old': p2_old_rating, 'new': int(player2.rating)}
+            }
+
+        socketio.emit('game_over', game_over_data, room=room_id)
         if room_id in active_games: del active_games[room_id]
         return
+        
     socketio.emit('round_started', get_game_state_for_client(game, room_id), room=room_id)
     start_next_human_turn(room_id)
 
@@ -175,8 +202,11 @@ def show_round_summary_and_schedule_next(room_id):
     p2_named_count = len([p for p in game.named_players if p.get('by') == 1])
     round_result = { 'club_name': game.current_club_name, 'p1_named': p1_named_count, 'p2_named': p2_named_count }
     game.round_history.append(round_result)
+    
+    game_session['skip_votes'] = set()
     summary_data = { 'clubName': game.current_club_name, 'fullPlayerList': [p['primary_name'] for p in game.players_for_comparison], 'namedPlayers': game.named_players, 'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 'scores': game.scores, 'mode': game.mode }
     socketio.emit('round_summary', summary_data, room=room_id)
+    
     pause_id = f"pause_{room_id}_{game.current_round}"
     game_session['pause_id'] = pause_id
     socketio.start_background_task(pause_watcher, room_id, pause_id)
@@ -194,21 +224,28 @@ def handle_disconnect():
         del lobby_players[request.sid]
         print(f"Игрок {nickname} покинул лобби.")
 
-@socketio.on('skip_pause')
-def handle_skip_pause(data):
+@socketio.on('request_skip_pause')
+def handle_request_skip_pause(data):
     room_id = data.get('roomId')
     game_session = active_games.get(room_id)
-    if game_session:
+    if not game_session: return
+    game = game_session['game']
+    if game.mode == 'solo' or game.mode == 'vs_bot':
         game_session['pause_id'] = None
         start_game_loop(room_id)
-
-@socketio.on('cancel_pvp_search')
-def handle_cancel_pvp_search():
-    sid = request.sid
-    if sid in lobby_players:
-        nickname = lobby_players.get(sid, {}).get('nickname', 'Unknown')
-        del lobby_players[sid]
-        print(f"Игрок {nickname} отменил поиск.")
+    elif game.mode == 'pvp':
+        player_index = -1
+        for i, p in game.players.items():
+            if p['sid'] == request.sid:
+                player_index = i
+                break
+        if player_index != -1:
+            game_session['skip_votes'].add(player_index)
+            emit('skip_vote_accepted')
+            socketio.emit('skip_vote_update', {'count': len(game_session['skip_votes'])}, room=room_id)
+            if len(game_session['skip_votes']) >= len(game.players):
+                game_session['pause_id'] = None
+                start_game_loop(room_id)
 
 @socketio.on('get_leaderboard')
 def handle_get_leaderboard():
@@ -247,7 +284,7 @@ def handle_start_game(data):
                 bot_user = get_or_create_user('Робо-Квинси')
             player2_info = {'sid': 'BOT', 'nickname': 'Робо-Квинси', 'user_obj': bot_user}
         game = GameState(player1_info_full, all_clubs_data, player2_info=player2_info, mode=mode)
-        active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None}
+        active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
         start_game_loop(room_id)
     elif mode == 'pvp':
         if sid in lobby_players: return
@@ -267,7 +304,7 @@ def handle_start_game(data):
             join_room(room_id, sid=p1_sid)
             join_room(room_id, sid=p2_sid)
             game = GameState(p1_info_full, all_clubs_data, player2_info=p2_info_full, mode='pvp')
-            active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None}
+            active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
             print(f"Начинается PvP игра: {p1_info['nickname']} vs {p2_info['nickname']}")
             start_game_loop(room_id)
         else:
@@ -325,9 +362,6 @@ def bot_turn(room_id):
 def index(): return render_template('index.html')
 
 if __name__ == '__main__':
-    # При локальном запуске monkey_patch нужен
-    import eventlet
-    eventlet.monkey_patch()
     if not all_clubs_data: print("КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить players.csv")
     else:
         print("Сервер запускается...")
