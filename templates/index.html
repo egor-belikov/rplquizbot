@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Футбольная Викторина РПЛ</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f2f5; color: #333; }
+        .container { text-align: center; background-color: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 95%; max-width: 500px; }
+        .hidden { display: none; }
+        button { background-color: #007bff; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 1em; cursor: pointer; transition: background-color 0.2s; margin: 5px; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        .btn-secondary { background-color: #6c757d; }
+        .btn-secondary:hover { background-color: #5a6268; }
+        input[type="text"] { width: 80%; padding: 10px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 10px; font-size: 1em; }
+        h1, h2, h3 { margin-top: 0; }
+        #registration-status, #game-status { min-height: 1.2em; margin-bottom: 10px; font-size: 0.9em; }
+        .error-message { color: #dc3545; }
+        #gameHeader, #summaryHeader { font-size: 1.1em; font-weight: bold; margin-bottom: 10px; }
+        #timer { font-size: 2em; font-weight: bold; color: #dc3545; margin: 5px 0; }
+        #score-display, #summary-score-display, #final-score-display { font-size: 1.2em; font-weight: bold; margin-bottom: 10px; }
+        .players-list { max-height: 150px; overflow-y: auto; background-color: #f8f9fa; padding: 8px; border-radius: 8px; font-size: 0.9em; margin-top: 15px; }
+        .player-name { background-color: #e9ecef; padding: 5px; border-radius: 5px; margin-bottom: 5px; text-align: left; }
+        #leaderboard-table, #game-history-table { width: 100%; margin-top: 15px; border-collapse: collapse; }
+        #leaderboard-table th, #leaderboard-table td, #game-history-table th, #game-history-table td { padding: 8px 12px; border-bottom: 1px solid #eee; }
+        #leaderboard-table th, #game-history-table th { background-color: #f8f9fa; text-align: left;}
+        #leaderboard-table tr:last-child td, #game-history-table tr:last-child td { border-bottom: none; }
+        #surrender-btn { background-color: #dc3545; font-size: 0.8em; padding: 6px 12px; margin-top: 10px; }
+        #surrender-btn:hover:not(:disabled) { background-color: #c82333; }
+        .summary-layout { margin-top: 15px; }
+        .summary-columns { display: flex; justify-content: space-around; text-align: left; gap: 15px; }
+        .summary-column { flex: 1; min-width: 0; }
+        .summary-column h3 { font-size: 1em; margin-bottom: 5px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .summary-players-list { max-height: 120px; overflow-y: auto; background-color: #f8f9fa; padding: 8px; border-radius: 8px; font-size: 0.9em; }
+        #summary-remaining-container h3 { margin-top: 15px; margin-bottom: 5px; }
+        #skip-pause-btn { font-size: 0.9em; padding: 8px 16px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div id="registration-screen" class="container hidden">
+        <h1>Добро пожаловать!</h1>
+        <p>Придумайте себе никнейм для игры.</p>
+        <form id="registration-form"><input type="text" id="nickname-input" placeholder="Ваш никнейм" autocomplete="off"><button type="submit">Войти</button></form>
+        <div id="registration-status"></div>
+    </div>
+    <div id="main-menu-screen" class="container hidden">
+        <h1>Футбольная Викторина РПЛ</h1>
+        <p>Привет, <b id="welcome-nickname"></b>!</p>
+        <p id="pvp-status" class="hidden"></p>
+        <button id="solo-btn">Играть одному</button>
+        <button id="vs-bot-btn">Играть с ботом</button>
+        <button id="pvp-btn">Найти соперника</button>
+        <button id="leaderboard-btn">Рейтинг</button>
+    </div>
+    <div id="leaderboard-screen" class="container hidden">
+        <h1>Таблица лидеров</h1>
+        <div style="max-height: 300px; overflow-y: auto;">
+            <table id="leaderboard-table">
+                <thead><tr><th>#</th><th>Игрок</th><th>Рейтинг</th></tr></thead>
+                <tbody id="leaderboard-body"></tbody>
+            </table>
+        </div>
+        <button id="back-to-menu-btn" class="btn-secondary">Назад</button>
+    </div>
+    <div id="game-screen" class="container hidden">
+        <div id="gameHeader"></div>
+        <div id="score-display"></div>
+        <div id="timer"></div>
+        <div id="game-status"></div>
+        <form id="guess-form"><input type="text" id="guess-input" placeholder="Введите фамилию..." autocomplete="off"><button type="submit">Ответить</button></form>
+        <div class="players-list" id="live-named-list"></div>
+        <button id="surrender-btn">Сдаться</button>
+    </div>
+    <div id="summary-screen" class="container hidden">
+        <h3 id="summaryHeader"></h3>
+        <div id="summary-score-display"></div>
+        <div class="summary-layout">
+            <div class="summary-columns">
+                <div class="summary-column" id="summary-human-column"><h3 id="summary-human-name-header"></h3><div class="summary-players-list" id="summary-human-named-list"></div></div>
+                <div class="summary-column" id="summary-bot-column"><h3 id="summary-bot-name-header"></h3><div class="summary-players-list" id="summary-bot-named-list"></div></div>
+            </div>
+            <div id="summary-remaining-container">
+                <h3>Осталось назвать:</h3>
+                <div class="summary-players-list" id="summary-remaining-list"></div>
+            </div>
+        </div>
+        <p>Следующий раунд через <span id="summary-countdown">10</span>...</p>
+        <button id="skip-pause-btn" class="btn-secondary">Пропустить</button>
+    </div>
+    <div id="game-over-screen" class="container hidden">
+        <h1>Игра окончена!</h1>
+        <h2 id="final-score-display"></h2>
+        <h3>История раундов:</h3>
+        <div style="max-height: 300px; overflow-y: auto;">
+            <table id="game-history-table">
+                <thead></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <button id="back-to-menu-from-game-over" class="btn-secondary">В главное меню</button>
+    </div>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        const socket = io();
+        const screens = { registration: document.getElementById('registration-screen'), mainMenu: document.getElementById('main-menu-screen'), leaderboard: document.getElementById('leaderboard-screen'), game: document.getElementById('game-screen'), summary: document.getElementById('summary-screen'), gameOver: document.getElementById('game-over-screen') };
+        let currentUserNickname = null, clientState = {}, timerInterval;
+        const registrationForm = document.getElementById('registration-form'), nicknameInput = document.getElementById('nickname-input'), registrationStatus = document.getElementById('registration-status'), welcomeNickname = document.getElementById('welcome-nickname');
+        const soloBtn = document.getElementById('solo-btn'), vsBotBtn = document.getElementById('vs-bot-btn'), leaderboardBtn = document.getElementById('leaderboard-btn'), backToMenuBtn = document.getElementById('back-to-menu-btn'), leaderboardBody = document.getElementById('leaderboard-body'), pvpBtn = document.getElementById('pvp-btn'), pvpStatus = document.getElementById('pvp-status');
+        const gameHeader = document.getElementById('gameHeader'), scoreDisplay = document.getElementById('score-display'), timerDiv = document.getElementById('timer'), gameStatus = document.getElementById('game-status'), guessForm = document.getElementById('guess-form'), guessInput = document.getElementById('guess-input'), liveNamedList = document.getElementById('live-named-list'), surrenderBtn = document.getElementById('surrender-btn');
+        const summaryHeader = document.getElementById('summaryHeader'), summaryScoreDisplay = document.getElementById('summary-score-display'), summaryHumanColumn = document.getElementById('summary-human-column'), summaryBotColumn = document.getElementById('summary-bot-column'), summaryHumanNameHeader = document.getElementById('summary-human-name-header'), summaryBotNameHeader = document.getElementById('summary-bot-name-header'), summaryHumanNamedList = document.getElementById('summary-human-named-list'), summaryBotNamedList = document.getElementById('summary-bot-named-list'), summaryRemainingList = document.getElementById('summary-remaining-list'), summaryCountdown = document.getElementById('summary-countdown'), skipPauseBtn = document.getElementById('skip-pause-btn');
+        const finalScoreDisplay = document.getElementById('final-score-display'), gameHistoryTable = document.getElementById('game-history-table'), backToMenuFromGameOverBtn = document.getElementById('back-to-menu-from-game-over');
+        function showScreen(screenName) { Object.values(screens).forEach(screen => screen.classList.add('hidden')); if (screens[screenName]) screens[screenName].classList.remove('hidden'); }
+        function updateGameUI(state) {
+            clientState = state;
+            gameHeader.textContent = `Тур ${state.round}/${state.totalRounds}: ${state.clubName}`;
+            if (state.mode === 'solo') { scoreDisplay.classList.add('hidden'); } else { scoreDisplay.classList.remove('hidden'); scoreDisplay.textContent = `${state.players[0].nickname} ${state.scores[0]} : ${state.scores[1]} ${state.players[1].nickname}`; }
+            liveNamedList.innerHTML = '';
+            state.namedPlayers.forEach(player => {
+                const pDiv = document.createElement('div'); pDiv.className = 'player-name';
+                const author = state.mode !== 'solo' ? (player.by === 0 ? state.players[0].nickname : state.players[1].nickname) : '';
+                pDiv.textContent = author ? `${player.name} (${author})` : player.name;
+                liveNamedList.appendChild(pDiv);
+            });
+            clearInterval(timerInterval);
+            let timeLeft = state.timeLimit;
+            timerDiv.textContent = timeLeft;
+            timerInterval = setInterval(() => { timeLeft--; timerDiv.textContent = timeLeft >= 0 ? timeLeft : 0; if (timeLeft < 0) clearInterval(timerInterval); }, 1000);
+        }
+        function startGame(mode) {
+            if (!currentUserNickname) return;
+            soloBtn.disabled = true; vsBotBtn.disabled = true; pvpBtn.disabled = true;
+            if (mode === 'pvp') { pvpStatus.textContent = '🔍 Поиск соперника...'; pvpStatus.classList.remove('hidden'); }
+            socket.emit('start_game', { mode: mode, nickname: currentUserNickname });
+        }
+        function resetMenu() { pvpStatus.classList.add('hidden'); soloBtn.disabled = false; vsBotBtn.disabled = false; pvpBtn.disabled = false; }
+        window.addEventListener('load', () => { const savedNickname = localStorage.getItem('rpl_quiz_nickname'); if (savedNickname) { currentUserNickname = savedNickname; welcomeNickname.textContent = currentUserNickname; showScreen('mainMenu'); } else { showScreen('registration'); } });
+        registrationForm.addEventListener('submit', (e) => { e.preventDefault(); const nickname = nicknameInput.value.trim(); registrationStatus.textContent = "Проверяем..."; registrationStatus.className = ''; socket.emit('register_user', { nickname: nickname }); });
+        soloBtn.addEventListener('click', () => startGame('solo'));
+        vsBotBtn.addEventListener('click', () => startGame('vs_bot'));
+        pvpBtn.addEventListener('click', () => startGame('pvp'));
+        leaderboardBtn.addEventListener('click', () => socket.emit('get_leaderboard'));
+        backToMenuBtn.addEventListener('click', () => resetMenu() & showScreen('mainMenu'));
+        guessForm.addEventListener('submit', (e) => { e.preventDefault(); const guess = guessInput.value; if (guess) { socket.emit('submit_guess', { roomId: clientState.roomId, guess: guess }); guessInput.value = ''; } });
+        surrenderBtn.addEventListener('click', () => { gameStatus.textContent = "Вы сдались..."; guessInput.disabled = true; surrenderBtn.disabled = true; socket.emit('surrender_round', { roomId: clientState.roomId }); });
+        backToMenuFromGameOverBtn.addEventListener('click', () => resetMenu() & showScreen('mainMenu'));
+        skipPauseBtn.addEventListener('click', () => { skipPauseBtn.disabled = true; socket.emit('skip_pause', { roomId: clientState.roomId }); });
+        socket.on('registration_status', (data) => { if (data.success) { currentUserNickname = data.nickname; localStorage.setItem('rpl_quiz_nickname', currentUserNickname); welcomeNickname.textContent = currentUserNickname; showScreen('mainMenu'); } else { registrationStatus.textContent = data.message; registrationStatus.className = 'error-message'; } });
+        socket.on('leaderboard_data', (data) => {
+            leaderboardBody.innerHTML = '';
+            data.forEach((user, index) => { const row = document.createElement('tr'); row.innerHTML = `<td>${index + 1}</td><td>${user.nickname}</td><td>${user.rating}</td>`; leaderboardBody.appendChild(row); });
+            showScreen('leaderboard');
+        });
+        socket.on('waiting_for_opponent', () => { console.log("Ждем второго игрока."); });
+        socket.on('round_started', (state) => { resetMenu(); showScreen('game'); gameStatus.textContent = 'Ваш ход...'; guessInput.disabled = false; surrenderBtn.disabled = false; updateGameUI(state); });
+        socket.on('turn_updated', (state) => { guessInput.disabled = false; surrenderBtn.disabled = false; gameStatus.textContent = 'Ваш ход...'; updateGameUI(state); });
+        socket.on('guess_result', (data) => {
+            if (data.result === 'correct') gameStatus.textContent = '✅ Верно!';
+            else if (data.result === 'correct_typo') gameStatus.textContent = `✅ Верно! (Засчитано как: ${data.corrected_name})`;
+            else if (data.result === 'already_named') gameStatus.textContent = 'Такого уже называли!';
+            else gameStatus.textContent = '❌ Неверно!';
+        });
+        socket.on('bot_guessed', (data) => { gameStatus.textContent = `Бот назвал: ${data.guess}`; });
+        socket.on('timer_expired', () => { clearInterval(timerInterval); gameStatus.textContent = '⏱️ Время вышло!'; guessInput.disabled = true; surrenderBtn.disabled = true; });
+        socket.on('round_summary', (data) => {
+            showScreen('summary');
+            if (data.mode === 'solo' || data.mode === 'vs_bot') { skipPauseBtn.classList.remove('hidden'); skipPauseBtn.disabled = false; } 
+            else { skipPauseBtn.classList.add('hidden'); }
+            summaryHeader.textContent = `Итоги раунда: ${data.clubName}`;
+            if (data.mode === 'solo') {
+                summaryScoreDisplay.classList.add('hidden');
+                summaryBotColumn.classList.add('hidden');
+                summaryHumanNameHeader.textContent = "Названные игроки";
+            } else {
+                summaryScoreDisplay.classList.remove('hidden');
+                summaryBotColumn.classList.remove('hidden');
+                summaryHumanNameHeader.textContent = data.players[0].nickname;
+                summaryBotNameHeader.textContent = data.players[1].nickname;
+                summaryScoreDisplay.textContent = `${data.players[0].nickname} ${data.scores[0]} : ${data.scores[1]} ${data.players[1].nickname}`;
+            }
+            summaryHumanNamedList.innerHTML = ''; summaryBotNamedList.innerHTML = ''; summaryRemainingList.innerHTML = '';
+            const allNamedPlayerNames = new Set(data.namedPlayers.map(p => p.name));
+            data.namedPlayers.forEach(player => {
+                const pDiv = document.createElement('div'); pDiv.className = 'player-name'; pDiv.textContent = player.name;
+                if (player.by === 0) summaryHumanNamedList.appendChild(pDiv); else summaryBotNamedList.appendChild(pDiv);
+            });
+            data.fullPlayerList.forEach(playerName => {
+                if (!allNamedPlayerNames.has(playerName)) {
+                    const pDiv = document.createElement('div'); pDiv.className = 'player-name'; pDiv.textContent = playerName;
+                    summaryRemainingList.appendChild(pDiv);
+                }
+            });
+            let countdown = 10;
+            summaryCountdown.textContent = countdown;
+            const summaryInterval = setInterval(() => {
+                countdown--;
+                summaryCountdown.textContent = countdown >= 0 ? countdown : 0;
+                if (countdown < 0) clearInterval(summaryInterval);
+            }, 1000);
+        });
+        socket.on('game_over', (data) => {
+            showScreen('gameOver');
+            const player1Name = data.players[0].nickname;
+            const player2Name = (data.players[1]) ? data.players[1].nickname : 'Бот';
+            finalScoreDisplay.textContent = `${player1Name} ${data.final_scores[0]} : ${data.final_scores[1]} ${player2Name}`;
+            const tableHead = gameHistoryTable.querySelector('thead');
+            if (data.mode === 'solo') {
+                tableHead.innerHTML = `<tr><th>Клуб</th><th>Названо игроков</th></tr>`;
+            } else {
+                tableHead.innerHTML = `<tr><th>Клуб</th><th>${player1Name}</th><th>${player2Name}</th></tr>`;
+            }
+            const tableBody = gameHistoryTable.querySelector('tbody');
+            tableBody.innerHTML = '';
+            data.history.forEach(round => {
+                const row = document.createElement('tr');
+                let p1_score = round.p1_named, p2_score = round.p2_named;
+                if (p1_score > p2_score) p1_score = `<b>${p1_score}</b>`;
+                if (p2_score > p1_score) p2_score = `<b>${p2_score}</b>`;
+                if (data.mode === 'solo') {
+                    row.innerHTML = `<td>${round.club_name}</td><td>${p1_score}</td>`;
+                } else {
+                    row.innerHTML = `<td>${round.club_name}</td><td>${p1_score}</td><td>${p2_score}</td>`;
+                }
+                tableBody.appendChild(row);
+            });
+        });
+    </script>
+</body>
+</html>
