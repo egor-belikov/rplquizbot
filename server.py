@@ -99,16 +99,11 @@ class GameState:
         if self.is_game_over(): return False
         self.current_round += 1
         if len(self.players) > 1:
-            if self.current_round == 0:
-                self.current_player_index = random.randint(0, 1)
-            elif self.previous_round_loser_index is not None:
-                self.current_player_index = self.previous_round_loser_index
-            elif self.last_successful_guesser_index is not None:
-                self.current_player_index = 1 - self.last_successful_guesser_index
-            else:
-                self.current_player_index = self.current_round % 2
-        else:
-            self.current_player_index = 0
+            if self.current_round == 0: self.current_player_index = random.randint(0, 1)
+            elif self.previous_round_loser_index is not None: self.current_player_index = self.previous_round_loser_index
+            elif self.last_successful_guesser_index is not None: self.current_player_index = 1 - self.last_successful_guesser_index
+            else: self.current_player_index = self.current_round % 2
+        else: self.current_player_index = 0
         self.previous_round_loser_index = None
         self.time_banks = {0: ROUND_TIME_BANK, 1: ROUND_TIME_BANK}
         self.current_club_name = self.game_clubs[self.current_round]
@@ -321,6 +316,7 @@ def handle_start_game(data):
         else:
             emit('waiting_for_opponent')
 
+# --- ИЗМЕНЕНИЕ: Исправлена логика таймера при неверном ответе ---
 @socketio.on('submit_guess')
 def handle_submit_guess(data):
     room_id, guess = data.get('roomId'), data.get('guess')
@@ -332,12 +328,14 @@ def handle_submit_guess(data):
     result = game.process_guess(guess)
     
     if result['result'] in ['correct', 'correct_typo']:
+        # Только при правильном ответе останавливаем таймер и вычитаем время
         time_spent = time.time() - game.turn_start_time
         game_session['turn_id'] = None
         game.time_banks[game.current_player_index] -= time_spent
+        
         if game.time_banks[game.current_player_index] < 0:
             game.time_banks[game.current_player_index] = 0
-            on_timer_end(room_id)
+            on_timer_end(room_id) # Время ушло в минус, даже при правильном ответе - это поражение
             return
 
         game.add_named_player(result['player_data'], game.current_player_index)
@@ -354,6 +352,7 @@ def handle_submit_guess(data):
             elif game.mode == 'vs_bot': socketio.start_background_task(bot_turn, room_id)
             elif game.mode == 'pvp': start_next_human_turn(room_id)
     else:
+        # При неверном ответе таймер НЕ останавливаем, просто сообщаем результат
         emit('guess_result', {'result': result['result']})
 
 @socketio.on('surrender_round')
@@ -390,7 +389,7 @@ def bot_turn(room_id):
 def index(): return render_template('index.html')
 
 if __name__ == '__main__':
-    # При локальном запуске monkey_patch нужен, gunicorn делает это сам на сервере
+    # При локальном запуске monkey_patch нужен
     import eventlet
     eventlet.monkey_patch()
     
