@@ -11,7 +11,7 @@ from sqlalchemy.pool import NullPool
 # Константы
 TOTAL_ROUNDS = 16
 PAUSE_BETWEEN_ROUNDS = 10
-TURN_TIME_LIMIT = 15
+TURN_TIME_LIMIT = 30
 TYPO_THRESHOLD = 85
 
 # Настройка Flask, SQLAlchemy
