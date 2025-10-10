@@ -1,4 +1,4 @@
-# server.py (версия 22 - Исправление PvP и рейтинга)
+# server.py (версия 26 - Убран лишний monkey_patch)
 
 import os, csv, uuid, random
 from flask import Flask, render_template, request
@@ -26,6 +26,9 @@ else:
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = { 'poolclass': NullPool }
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+# Gunicorn с --worker-class eventlet сам сделает monkey-patching,
+# поэтому SocketIO нужно инициализировать без явного указания async_mode.
+# Но для совместимости с локальным запуском оставим eventlet.
 socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
 
 # Модель Базы Данных
@@ -84,8 +87,8 @@ class GameState:
         self.players = {0: player1_info}
         if player2_info: self.players[1] = player2_info
         self.scores = {0: 0, 1: 0}
-        self.game_clubs = random.sample(list(all_clubs.keys()), TOTAL_ROUNDS)
-        self.all_clubs_data = all_clubs
+        self.game_clubs = random.sample(list(all_clubs_data.keys()), TOTAL_ROUNDS)
+        self.all_clubs_data = all_clubs_data
         self.current_round, self.current_player_index, self.current_club_name = -1, 0, None
         self.players_for_comparison, self.named_players_primary, self.named_players = [], set(), []
         self.round_history = []
@@ -203,7 +206,7 @@ def handle_skip_pause(data):
 def handle_cancel_pvp_search():
     sid = request.sid
     if sid in lobby_players:
-        nickname = lobby_players[sid].get('nickname', 'Unknown')
+        nickname = lobby_players.get(sid, {}).get('nickname', 'Unknown')
         del lobby_players[sid]
         print(f"Игрок {nickname} отменил поиск.")
 
@@ -284,8 +287,6 @@ def handle_submit_guess(data):
         game.add_named_player(player_data, current_player_index)
         if game.mode == 'pvp':
             game.scores[current_player_index] += 1
-        elif game.mode == 'vs_bot' and current_player_index == 0:
-            game.scores[0] += 1
         emit('guess_result', {'result': result['result'], 'corrected_name': player_data['primary_name']})
         if game.is_round_over():
             show_round_summary_and_schedule_next(room_id)
@@ -324,6 +325,9 @@ def bot_turn(room_id):
 def index(): return render_template('index.html')
 
 if __name__ == '__main__':
+    # При локальном запуске monkey_patch нужен
+    import eventlet
+    eventlet.monkey_patch()
     if not all_clubs_data: print("КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить players.csv")
     else:
         print("Сервер запускается...")
