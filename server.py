@@ -1,6 +1,6 @@
-# server.py (версия 31 - Блокировка ввода и защита от сдачи не в свой ход)
+# server.py (Финальная версия)
 
-import os, csv, uuid, random
+import os, csv, uuid, random, time
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit, join_room
 from flask_sqlalchemy import SQLAlchemy
@@ -8,13 +8,10 @@ from fuzzywuzzy import fuzz
 from glicko2 import Player
 from sqlalchemy.pool import NullPool
 
-#import eventlet
-#eventlet.monkey_patch()
-
 # Константы
 TOTAL_ROUNDS = 16
 PAUSE_BETWEEN_ROUNDS = 10
-TURN_TIME_LIMIT = 30
+ROUND_TIME_BANK = 90.0
 TYPO_THRESHOLD = 85
 
 # Настройка Flask, SQLAlchemy
@@ -93,15 +90,33 @@ class GameState:
         self.players_for_comparison, self.named_players_primary, self.named_players = [], set(), []
         self.round_history = []
         self.end_reason = 'normal'
+        self.last_successful_guesser_index = None
+        self.previous_round_loser_index = None
+        self.time_banks = {0: ROUND_TIME_BANK, 1: ROUND_TIME_BANK}
+        self.turn_start_time = 0
+
     def start_new_round(self):
         if self.is_game_over(): return False
         self.current_round += 1
+        if len(self.players) > 1:
+            if self.current_round == 0:
+                self.current_player_index = random.randint(0, 1)
+            elif self.previous_round_loser_index is not None:
+                self.current_player_index = self.previous_round_loser_index
+            elif self.last_successful_guesser_index is not None:
+                self.current_player_index = 1 - self.last_successful_guesser_index
+            else:
+                self.current_player_index = self.current_round % 2
+        else:
+            self.current_player_index = 0
+        self.previous_round_loser_index = None
+        self.time_banks = {0: ROUND_TIME_BANK, 1: ROUND_TIME_BANK}
         self.current_club_name = self.game_clubs[self.current_round]
         player_objects = self.all_clubs_data[self.current_club_name]
         self.players_for_comparison = sorted(player_objects, key=lambda p: p['primary_name'])
         self.named_players_primary, self.named_players = set(), []
-        self.current_player_index = self.current_round % len(self.players)
         return True
+        
     def process_guess(self, guess):
         guess_norm = guess.strip().lower().replace('ё', 'е')
         for player_data in self.players_for_comparison:
@@ -115,10 +130,13 @@ class GameState:
             if ratio > max_ratio: max_ratio, best_match_player = ratio, player_data
         if max_ratio >= TYPO_THRESHOLD: return {'result': 'correct_typo', 'player_data': best_match_player}
         return {'result': 'not_found'}
+        
     def add_named_player(self, player_data, player_index):
         self.named_players.append({'name': player_data['primary_name'], 'by': player_index})
         self.named_players_primary.add(player_data['primary_name'])
+        self.last_successful_guesser_index = player_index
         if self.mode != 'solo': self.switch_player()
+        
     def switch_player(self): self.current_player_index = 1 - self.current_player_index
     def is_round_over(self): return len(self.named_players) == len(self.players_for_comparison)
     def is_game_over(self):
@@ -137,15 +155,20 @@ active_games = {}
 lobby_players = {}
 
 def get_game_state_for_client(game, room_id):
-    return { 'roomId': room_id, 'mode': game.mode, 'players': {i: {'nickname': p['nickname'], 'sid': p['sid']} for i, p in game.players.items()}, 'scores': game.scores, 'round': game.current_round + 1, 'totalRounds': TOTAL_ROUNDS, 'clubName': game.current_club_name, 'namedPlayers': game.named_players, 'fullPlayerList': [p['primary_name'] for p in game.players_for_comparison], 'currentPlayerIndex': game.current_player_index, 'timeLimit': TURN_TIME_LIMIT }
+    return { 'roomId': room_id, 'mode': game.mode, 'players': {i: {'nickname': p['nickname'], 'sid': p['sid']} for i, p in game.players.items()}, 'scores': game.scores, 'round': game.current_round + 1, 'totalRounds': TOTAL_ROUNDS, 'clubName': game.current_club_name, 'namedPlayers': game.named_players, 'fullPlayerList': [p['primary_name'] for p in game.players_for_comparison], 'currentPlayerIndex': game.current_player_index, 'timeBanks': game.time_banks }
 
 def start_next_human_turn(room_id):
     game_session = active_games.get(room_id)
     if not game_session: return
     game = game_session['game']
+    game.turn_start_time = time.time()
     turn_id = f"{room_id}_{game.current_round}_{len(game.named_players)}"
     game_session['turn_id'] = turn_id
-    socketio.start_background_task(turn_watcher, room_id, turn_id, TURN_TIME_LIMIT)
+    time_left = game.time_banks[game.current_player_index]
+    if time_left > 0:
+        socketio.start_background_task(turn_watcher, room_id, turn_id, time_left)
+    else:
+        on_timer_end(room_id)
     socketio.emit('turn_updated', get_game_state_for_client(game, room_id), room=room_id)
 
 def turn_watcher(room_id, turn_id, time_limit):
@@ -157,9 +180,13 @@ def on_timer_end(room_id):
     game_session = active_games.get(room_id)
     if not game_session: return
     game = game_session['game']
-    socketio.emit('timer_expired', {'playerIndex': game.current_player_index}, room=room_id)
+    loser_index = game.current_player_index
+    game.time_banks[loser_index] = 0.0
+    socketio.emit('timer_expired', {'playerIndex': loser_index, 'timeBanks': game.time_banks}, room=room_id)
     if game.mode != 'solo':
-        game.scores[1 - game.current_player_index] += 1
+        winner_index = 1 - loser_index
+        game.scores[winner_index] += 1
+        game.previous_round_loser_index = loser_index
     game_session['last_round_end_reason'] = 'timeout'
     show_round_summary_and_schedule_next(room_id)
 
@@ -227,9 +254,7 @@ def handle_request_skip_pause(data):
     elif game.mode == 'pvp':
         player_index = -1
         for i, p in game.players.items():
-            if p['sid'] == request.sid:
-                player_index = i
-                break
+            if p['sid'] == request.sid: player_index = i; break
         if player_index != -1:
             game_session['skip_votes'].add(player_index)
             emit('skip_vote_accepted')
@@ -264,15 +289,12 @@ def handle_start_game(data):
     sid, mode, nickname = request.sid, data.get('mode'), data.get('nickname')
     player_info = {'sid': sid, 'nickname': nickname} 
     if mode == 'solo' or mode == 'vs_bot':
-        with app.app_context():
-            player_user = get_or_create_user(nickname)
+        with app.app_context(): player_user = get_or_create_user(nickname)
         player1_info_full = {'sid': sid, 'nickname': nickname, 'user_obj': player_user}
-        room_id = str(uuid.uuid4())
-        join_room(room_id)
+        room_id = str(uuid.uuid4()); join_room(room_id)
         player2_info = None
         if mode == 'vs_bot':
-            with app.app_context():
-                bot_user = get_or_create_user('Робо-Квинси')
+            with app.app_context(): bot_user = get_or_create_user('Робо-Квинси')
             player2_info = {'sid': 'BOT', 'nickname': 'Робо-Квинси', 'user_obj': bot_user}
         game = GameState(player1_info_full, all_clubs_data, player2_info=player2_info, mode=mode)
         active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
@@ -284,16 +306,14 @@ def handle_start_game(data):
         if len(lobby_players) >= 2:
             p1_sid, p1_info = list(lobby_players.items())[0]
             p2_sid, p2_info = list(lobby_players.items())[1]
-            del lobby_players[p1_sid]
-            del lobby_players[p2_sid]
+            del lobby_players[p1_sid]; del lobby_players[p2_sid]
             with app.app_context():
                 p1_user = get_or_create_user(p1_info['nickname'])
                 p2_user = get_or_create_user(p2_info['nickname'])
             p1_info_full = {'sid': p1_sid, 'nickname': p1_info['nickname'], 'user_obj': p1_user}
             p2_info_full = {'sid': p2_sid, 'nickname': p2_info['nickname'], 'user_obj': p2_user}
             room_id = str(uuid.uuid4())
-            join_room(room_id, sid=p1_sid)
-            join_room(room_id, sid=p2_sid)
+            join_room(room_id, sid=p1_sid); join_room(room_id, sid=p2_sid)
             game = GameState(p1_info_full, all_clubs_data, player2_info=p2_info_full, mode='pvp')
             active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
             print(f"Начинается PvP игра: {p1_info['nickname']} vs {p2_info['nickname']}")
@@ -306,13 +326,23 @@ def handle_submit_guess(data):
     room_id, guess = data.get('roomId'), data.get('guess')
     game_session = active_games.get(room_id)
     if not game_session: return
-    game_session['turn_id'] = None
     game = game_session['game']
+    if game.players[game.current_player_index].get('sid') != request.sid: return
+    
     result = game.process_guess(guess)
+    
     if result['result'] in ['correct', 'correct_typo']:
-        player_data = result['player_data']
-        game.add_named_player(player_data, game.current_player_index)
-        emit('guess_result', {'result': result['result'], 'corrected_name': player_data['primary_name']})
+        time_spent = time.time() - game.turn_start_time
+        game_session['turn_id'] = None
+        game.time_banks[game.current_player_index] -= time_spent
+        if game.time_banks[game.current_player_index] < 0:
+            game.time_banks[game.current_player_index] = 0
+            on_timer_end(room_id)
+            return
+
+        game.add_named_player(result['player_data'], game.current_player_index)
+        emit('guess_result', {'result': result['result'], 'corrected_name': result['player_data']['primary_name']})
+        
         if game.is_round_over():
             game_session['last_round_end_reason'] = 'completed'
             if game.mode != 'solo':
@@ -321,27 +351,20 @@ def handle_submit_guess(data):
             show_round_summary_and_schedule_next(room_id)
         else:
             if game.mode == 'solo': start_next_human_turn(room_id)
-            elif game.mode == 'vs_bot' and game.current_player_index == 1: socketio.start_background_task(bot_turn, room_id)
+            elif game.mode == 'vs_bot': socketio.start_background_task(bot_turn, room_id)
             elif game.mode == 'pvp': start_next_human_turn(room_id)
     else:
         emit('guess_result', {'result': result['result']})
 
-# --- ИЗМЕНЕНИЕ: Добавлена проверка на очередность хода ---
 @socketio.on('surrender_round')
 def handle_surrender(data):
     room_id = data.get('roomId')
     game_session = active_games.get(room_id)
     if not game_session: return
     game = game_session['game']
-
-    # Проверяем, действительно ли сейчас ход того, кто отправил запрос
-    if game.players[game.current_player_index].get('sid') != request.sid:
-        print(f"Получен недействительный запрос на сдачу не в свой ход. SID: {request.sid}")
-        return # Игнорируем запрос
-
+    if game.players[game.current_player_index].get('sid') != request.sid: return
     game_session['turn_id'] = None 
     game_session['last_round_end_reason'] = 'timeout'
-    print(f"Игрок {game.players[game.current_player_index]['nickname']} сдался в комнате {room_id}.")
     on_timer_end(room_id)
 
 def bot_turn(room_id):
@@ -367,7 +390,11 @@ def bot_turn(room_id):
 def index(): return render_template('index.html')
 
 if __name__ == '__main__':
+    # При локальном запуске monkey_patch нужен, gunicorn делает это сам на сервере
+    import eventlet
+    eventlet.monkey_patch()
+    
     if not all_clubs_data: print("КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить players.csv")
     else:
-        print("Сервер запускается...")
+        print("Сервер запускается в локальном режиме...")
         socketio.run(app, host='127.0.0.1', port=5000, debug=True)

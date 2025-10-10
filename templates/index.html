@@ -12,7 +12,6 @@
         button:disabled { background-color: #ccc; cursor: not-allowed; }
         .btn-secondary { background-color: #6c757d; }
         .btn-secondary:hover:not(:disabled) { background-color: #5a6268; }
-        /* --- НОВЫЙ СТИЛЬ ДЛЯ КРАСНОЙ КНОПКИ --- */
         .btn-danger { background-color: #dc3545; }
         .btn-danger:hover:not(:disabled) { background-color: #c82333; }
         input[type="text"] { width: 80%; padding: 10px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 10px; font-size: 1em; }
@@ -20,7 +19,6 @@
         #registration-status, #game-status, #pvp-status { min-height: 1.2em; margin-bottom: 10px; font-size: 0.9em; }
         .error-message { color: #dc3545; }
         #gameHeader, #summaryHeader { font-size: 1.1em; font-weight: bold; margin-bottom: 10px; }
-        #timer { font-size: 2em; font-weight: bold; color: #dc3545; margin: 5px 0; }
         #score-display, #summary-score-display, #final-score-display { font-size: 1.2em; font-weight: bold; margin-bottom: 10px; }
         .players-list { max-height: 150px; overflow-y: auto; background-color: #f8f9fa; padding: 8px; border-radius: 8px; font-size: 0.9em; margin-top: 15px; }
         .player-name { background-color: #e9ecef; padding: 5px; border-radius: 5px; margin-bottom: 5px; text-align: left; }
@@ -28,11 +26,10 @@
         #leaderboard-table th, #leaderboard-table td, #game-history-table th, #game-history-table td { padding: 8px 12px; border-bottom: 1px solid #eee; }
         #leaderboard-table th, #game-history-table th { background-color: #f8f9fa; text-align: left;}
         #leaderboard-table tr:last-child td, #game-history-table tr:last-child td { border-bottom: none; }
-        /* Убираем красный цвет по умолчанию */
         #surrender-btn { font-size: 0.8em; padding: 6px 12px; margin-top: 10px; }
-        .summary-layout { margin-top: 15px; }
-        .summary-columns { display: flex; justify-content: space-around; text-align: left; gap: 15px; }
-        .summary-column { flex: 1; min-width: 0; }
+        .summary-layout, .timers-layout { margin-top: 15px; }
+        .summary-columns, .timers-columns { display: flex; justify-content: space-around; text-align: center; gap: 15px; }
+        .summary-column, .timer-box { flex: 1; min-width: 0; }
         .summary-column h3 { font-size: 1em; margin-bottom: 5px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
         .summary-players-list { max-height: 120px; overflow-y: auto; background-color: #f8f9fa; padding: 8px; border-radius: 8px; font-size: 0.9em; }
         #summary-remaining-container h3 { margin-top: 15px; margin-bottom: 5px; }
@@ -44,39 +41,32 @@
         .rating-change { margin-bottom: 5px; }
         .rating-positive { color: #28a745; }
         .rating-negative { color: #dc3545; }
+        .timer-value { font-size: 1.5em; font-weight: bold; transition: color 0.3s; }
+        .timer-box { border: 1px solid #eee; padding: 5px; border-radius: 8px; transition: border-color 0.3s; }
+        .timer-box .nickname { font-size: 0.8em; color: #6c757d; }
+        .timer-box:not(.active-turn) .timer-value { color: #adb5bd !important; }
+        .timer-box.active-turn { border: 2px solid #007bff; }
     </style>
 </head>
 <body>
-    <div id="registration-screen" class="container hidden">
-        <h1>Добро пожаловать!</h1>
-        <p>Придумайте себе никнейм для игры.</p>
-        <form id="registration-form"><input type="text" id="nickname-input" placeholder="Ваш никнейм" autocomplete="off"><button type="submit">Войти</button></form>
-        <div id="registration-status"></div>
-    </div>
-    <div id="main-menu-screen" class="container hidden">
-        <h1>Футбольная Викторина РПЛ</h1>
-        <p>Привет, <b id="welcome-nickname"></b>!</p>
-        <p id="pvp-status"></p>
-        <button id="solo-btn">Играть одному</button>
-        <button id="vs-bot-btn">Играть с ботом</button>
-        <button id="pvp-btn">Найти соперника</button>
-        <button id="leaderboard-btn">Рейтинг</button>
-        <button id="cancel-pvp-btn" class="btn-secondary hidden">Отменить поиск</button>
-    </div>
-    <div id="leaderboard-screen" class="container hidden">
-        <h1>Таблица лидеров</h1>
-        <div style="max-height: 300px; overflow-y: auto;">
-            <table id="leaderboard-table">
-                <thead><tr><th>#</th><th>Игрок</th><th>Рейтинг</th></tr></thead>
-                <tbody id="leaderboard-body"></tbody>
-            </table>
-        </div>
-        <button id="back-to-menu-btn" class="btn-secondary">Назад</button>
-    </div>
+    <div id="registration-screen" class="container hidden">...</div>
+    <div id="main-menu-screen" class="container hidden">...</div>
+    <div id="leaderboard-screen" class="container hidden">...</div>
     <div id="game-screen" class="container hidden">
         <div id="gameHeader"></div>
         <div id="score-display"></div>
-        <div id="timer"></div>
+        <div class="timers-layout">
+            <div class="timers-columns">
+                <div class="timer-box" id="my-timer-box">
+                    <div class="nickname" id="my-timer-nickname">Вы</div>
+                    <div class="timer-value" id="my-timer-value">01:30.00</div>
+                </div>
+                <div class="timer-box" id="opponent-timer-box">
+                    <div class="nickname" id="opponent-timer-nickname">Соперник</div>
+                    <div class="timer-value" id="opponent-timer-value">01:30.00</div>
+                </div>
+            </div>
+        </div>
         <div id="game-status"></div>
         <form id="guess-form">
             <input type="text" id="guess-input" placeholder="Введите фамилию..." autocomplete="off">
@@ -85,36 +75,8 @@
         <div class="players-list" id="live-named-list"></div>
         <button id="surrender-btn" class="btn-secondary">Сдаться</button>
     </div>
-    <div id="summary-screen" class="container hidden">
-        <h3 id="summaryHeader"></h3>
-        <div id="summary-score-display"></div>
-        <div class="summary-layout">
-            <div class="summary-columns">
-                <div class="summary-column" id="summary-human-column"><h3 id="summary-human-name-header"></h3><div class="summary-players-list" id="summary-human-named-list"></div></div>
-                <div class="summary-column" id="summary-bot-column"><h3 id="summary-bot-name-header"></h3><div class="summary-players-list" id="summary-bot-named-list"></div></div>
-            </div>
-            <div id="summary-remaining-container">
-                <h3>Осталось назвать:</h3>
-                <div class="summary-players-list" id="summary-remaining-list"></div>
-            </div>
-        </div>
-        <p>Следующий раунд через <span id="summary-countdown">10</span>...</p>
-        <button id="skip-pause-btn" class="btn-secondary">Пропустить</button>
-    </div>
-    <div id="game-over-screen" class="container hidden">
-        <h1 id="game-over-title">Игра окончена!</h1>
-        <p id="early-end-explanation" class="hidden"></p>
-        <h2 id="final-score-display"></h2>
-        <div id="rating-changes-display" class="hidden"></div>
-        <h3>История раундов:</h3>
-        <div style="max-height: 300px; overflow-y: auto;">
-            <table id="game-history-table">
-                <thead></thead>
-                <tbody></tbody>
-            </table>
-        </div>
-        <button id="back-to-menu-from-game-over" class="btn-secondary">В главное меню</button>
-    </div>
+    <div id="summary-screen" class="container hidden">...</div>
+    <div id="game-over-screen" class="container hidden">...</div>
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
@@ -123,21 +85,68 @@
         let currentUserNickname = null, clientState = {}, timerInterval;
         const registrationForm = document.getElementById('registration-form'), nicknameInput = document.getElementById('nickname-input'), registrationStatus = document.getElementById('registration-status'), welcomeNickname = document.getElementById('welcome-nickname');
         const soloBtn = document.getElementById('solo-btn'), vsBotBtn = document.getElementById('vs-bot-btn'), leaderboardBtn = document.getElementById('leaderboard-btn'), backToMenuBtn = document.getElementById('back-to-menu-btn'), leaderboardBody = document.getElementById('leaderboard-body'), pvpBtn = document.getElementById('pvp-btn'), pvpStatus = document.getElementById('pvp-status'), cancelPvpBtn = document.getElementById('cancel-pvp-btn');
-        const gameHeader = document.getElementById('gameHeader'), scoreDisplay = document.getElementById('score-display'), timerDiv = document.getElementById('timer'), gameStatus = document.getElementById('game-status'), guessForm = document.getElementById('guess-form'), guessInput = document.getElementById('guess-input'), liveNamedList = document.getElementById('live-named-list'), surrenderBtn = document.getElementById('surrender-btn'), submitGuessBtn = document.getElementById('submit-guess-btn');
+        const gameHeader = document.getElementById('gameHeader'), scoreDisplay = document.getElementById('score-display'), gameStatus = document.getElementById('game-status'), guessForm = document.getElementById('guess-form'), guessInput = document.getElementById('guess-input'), liveNamedList = document.getElementById('live-named-list'), surrenderBtn = document.getElementById('surrender-btn'), submitGuessBtn = document.getElementById('submit-guess-btn');
+        const myTimerBox = document.getElementById('my-timer-box'), myTimerNickname = document.getElementById('my-timer-nickname'), myTimerValue = document.getElementById('my-timer-value');
+        const opponentTimerBox = document.getElementById('opponent-timer-box'), opponentTimerNickname = document.getElementById('opponent-timer-nickname'), opponentTimerValue = document.getElementById('opponent-timer-value');
         const summaryHeader = document.getElementById('summaryHeader'), summaryScoreDisplay = document.getElementById('summary-score-display'), summaryHumanColumn = document.getElementById('summary-human-column'), summaryBotColumn = document.getElementById('summary-bot-column'), summaryHumanNameHeader = document.getElementById('summary-human-name-header'), summaryBotNameHeader = document.getElementById('summary-bot-name-header'), summaryHumanNamedList = document.getElementById('summary-human-named-list'), summaryBotNamedList = document.getElementById('summary-bot-named-list'), summaryRemainingList = document.getElementById('summary-remaining-list'), summaryCountdown = document.getElementById('summary-countdown'), skipPauseBtn = document.getElementById('skip-pause-btn');
         const gameOverTitle = document.getElementById('game-over-title'), earlyEndExplanation = document.getElementById('early-end-explanation'), finalScoreDisplay = document.getElementById('final-score-display'), ratingChangesDisplay = document.getElementById('rating-changes-display'), gameHistoryTable = document.getElementById('game-history-table'), backToMenuFromGameOverBtn = document.getElementById('back-to-menu-from-game-over');
         
+        let isMyTurn = false;
+
         function showScreen(screenName) { Object.values(screens).forEach(screen => screen.classList.add('hidden')); if (screens[screenName]) screens[screenName].classList.remove('hidden'); }
+        
+        function formatTime(seconds) {
+            if (seconds < 0) seconds = 0;
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            const ms = Math.floor((seconds - Math.floor(seconds)) * 100);
+            return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(2, '0')}`;
+        }
         
         function updateGameUI(state) {
             clientState = state;
+            
+            let myPlayerIndex = -1;
+            for (const i in state.players) {
+                if (state.players[i].sid === socket.id) {
+                    myPlayerIndex = parseInt(i, 10);
+                    break;
+                }
+            }
+            if (myPlayerIndex === -1 && state.mode === 'solo') myPlayerIndex = 0;
+            if (myPlayerIndex === -1) return;
+
+            const opponentPlayerIndex = 1 - myPlayerIndex;
+            const activePlayerIndex = state.currentPlayerIndex;
+            isMyTurn = (myPlayerIndex === activePlayerIndex);
+
             gameHeader.textContent = `Тур ${state.round}/${state.totalRounds}: ${state.clubName}`;
+            
             if (state.mode === 'solo' || !state.players[1]) {
                 scoreDisplay.classList.add('hidden');
+                opponentTimerBox.classList.add('hidden');
+                myTimerNickname.textContent = state.players[0].nickname;
             } else {
                 scoreDisplay.classList.remove('hidden');
+                opponentTimerBox.classList.remove('hidden');
                 scoreDisplay.textContent = `${state.players[0].nickname} ${state.scores[0]} : ${state.scores[1]} ${state.players[1].nickname}`;
+                myTimerNickname.textContent = state.players[myPlayerIndex].nickname + ' (Вы)';
+                opponentTimerNickname.textContent = state.players[opponentPlayerIndex].nickname;
             }
+
+            submitGuessBtn.disabled = !isMyTurn;
+            surrenderBtn.disabled = !isMyTurn;
+            guessInput.placeholder = isMyTurn ? 'Введите фамилию...' : 'Ход соперника...';
+            gameStatus.textContent = isMyTurn ? 'Ваш ход...' : `Ожидаем ход игрока ${state.players[activePlayerIndex].nickname}...`;
+            if(isMyTurn) {
+                surrenderBtn.classList.remove('btn-secondary');
+                surrenderBtn.classList.add('btn-danger');
+                guessInput.focus();
+            } else {
+                surrenderBtn.classList.remove('btn-danger');
+                surrenderBtn.classList.add('btn-secondary');
+            }
+            
             liveNamedList.innerHTML = '';
             state.namedPlayers.forEach(player => {
                 const pDiv = document.createElement('div'); pDiv.className = 'player-name';
@@ -145,35 +154,33 @@
                 pDiv.textContent = author ? `${player.name} (${author})` : player.name;
                 liveNamedList.appendChild(pDiv);
             });
+            
             clearInterval(timerInterval);
-            let timeLeft = state.timeLimit;
-            timerDiv.textContent = timeLeft;
-            timerInterval = setInterval(() => { timeLeft--; timerDiv.textContent = timeLeft >= 0 ? timeLeft : 0; if (timeLeft < 0) clearInterval(timerInterval); }, 1000);
+            let timeBanks = {...state.timeBanks};
 
-            const myTurn = (socket.id === state.players[state.currentPlayerIndex].sid);
-            if (myTurn) {
-                guessInput.disabled = false;
-                submitGuessBtn.disabled = false;
-                surrenderBtn.disabled = false;
-                guessInput.placeholder = 'Введите фамилию...';
-                gameStatus.textContent = 'Ваш ход...';
-                guessInput.focus();
-                // --- ИЗМЕНЕНИЕ: Управляем цветом кнопки ---
-                surrenderBtn.classList.remove('btn-secondary');
-                surrenderBtn.classList.add('btn-danger');
-            } else {
-                guessInput.disabled = true;
-                submitGuessBtn.disabled = true;
-                surrenderBtn.disabled = true;
-                guessInput.placeholder = 'Ход соперника...';
-                const opponentName = state.players[state.currentPlayerIndex].nickname;
-                gameStatus.textContent = `Ожидаем ход игрока ${opponentName}...`;
-                // --- ИЗМЕНЕНИЕ: Управляем цветом кнопки ---
-                surrenderBtn.classList.remove('btn-danger');
-                surrenderBtn.classList.add('btn-secondary');
+            myTimerValue.textContent = formatTime(timeBanks[myPlayerIndex]);
+            if (opponentPlayerIndex in timeBanks && timeBanks[opponentPlayerIndex] !== undefined) {
+                opponentTimerValue.textContent = formatTime(timeBanks[opponentPlayerIndex]);
             }
+            
+            myTimerBox.classList.remove('active-turn');
+            opponentTimerBox.classList.remove('active-turn');
+            if (activePlayerIndex === myPlayerIndex) myTimerBox.classList.add('active-turn');
+            else opponentTimerBox.classList.add('active-turn');
+            
+            timerInterval = setInterval(() => {
+                timeBanks[activePlayerIndex] -= 0.05;
+                const activeTimerDisplay = (activePlayerIndex === myPlayerIndex) ? myTimerValue : opponentTimerValue;
+                activeTimerDisplay.textContent = formatTime(timeBanks[activePlayerIndex]);
+                if (timeBanks[activePlayerIndex] <= 10) {
+                    activeTimerDisplay.style.color = '#dc3545';
+                } else {
+                    activeTimerDisplay.style.color = '#333';
+                }
+                if (timeBanks[activePlayerIndex] <= 0) clearInterval(timerInterval);
+            }, 50);
         }
-
+        
         function startGame(mode) {
             if (!currentUserNickname) return;
             soloBtn.disabled = true; vsBotBtn.disabled = true; pvpBtn.disabled = true; leaderboardBtn.disabled = true;
@@ -199,7 +206,7 @@
         leaderboardBtn.addEventListener('click', () => socket.emit('get_leaderboard'));
         backToMenuBtn.addEventListener('click', () => resetMenu() & showScreen('mainMenu'));
         cancelPvpBtn.addEventListener('click', () => { socket.emit('cancel_pvp_search'); resetMenu(); });
-        guessForm.addEventListener('submit', (e) => { e.preventDefault(); const guess = guessInput.value; if (guess && !guessInput.disabled) { socket.emit('submit_guess', { roomId: clientState.roomId, guess: guess }); guessInput.value = ''; } });
+        guessForm.addEventListener('submit', (e) => { e.preventDefault(); if(isMyTurn) { const guess = guessInput.value; if (guess) { socket.emit('submit_guess', { roomId: clientState.roomId, guess: guess }); guessInput.value = ''; }} });
         surrenderBtn.addEventListener('click', () => { if(surrenderBtn.disabled) return; gameStatus.textContent = "Вы сдались..."; guessInput.disabled = true; surrenderBtn.disabled = true; socket.emit('surrender_round', { roomId: clientState.roomId }); });
         backToMenuFromGameOverBtn.addEventListener('click', () => resetMenu() & showScreen('mainMenu'));
         skipPauseBtn.addEventListener('click', () => {
@@ -224,14 +231,14 @@
             else gameStatus.textContent = '❌ Неверно!';
         });
         socket.on('bot_guessed', (data) => { gameStatus.textContent = `Бот назвал: ${data.guess}`; });
-        socket.on('timer_expired', () => {
+        socket.on('timer_expired', (data) => {
             clearInterval(timerInterval);
+            timerValues[data.playerIndex].textContent = formatTime(0);
+            timerValues[data.playerIndex].style.color = '#dc3545';
             gameStatus.textContent = '⏱️ Время вышло!';
             guessInput.disabled = true;
             submitGuessBtn.disabled = true;
             surrenderBtn.disabled = true;
-            surrenderBtn.classList.remove('btn-danger');
-            surrenderBtn.classList.add('btn-secondary');
         });
         socket.on('round_summary', (data) => {
             showScreen('summary');
