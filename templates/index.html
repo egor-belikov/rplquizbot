@@ -34,7 +34,6 @@
         .summary-players-list { max-height: 120px; overflow-y: auto; background-color: #f8f9fa; padding: 8px; border-radius: 8px; font-size: 0.9em; }
         #summary-remaining-container h3 { margin-top: 15px; margin-bottom: 5px; }
         #skip-pause-btn { font-size: 0.9em; padding: 8px 16px; margin-top: 10px; }
-        /* --- НОВЫЕ СТИЛИ ДЛЯ АНИМАЦИИ --- */
         .searching-status::after {
             display: inline-block;
             animation: ellipsis 1.5s infinite;
@@ -128,12 +127,7 @@
         function updateGameUI(state) {
             clientState = state;
             gameHeader.textContent = `Тур ${state.round}/${state.totalRounds}: ${state.clubName}`;
-            if (state.mode === 'solo' || !state.players[1]) {
-                scoreDisplay.classList.add('hidden');
-            } else {
-                scoreDisplay.classList.remove('hidden');
-                scoreDisplay.textContent = `${state.players[0].nickname} ${state.scores[0]} : ${state.scores[1]} ${state.players[1].nickname}`;
-            }
+            if (state.mode === 'solo' || !state.players[1]) { scoreDisplay.classList.add('hidden'); } else { scoreDisplay.classList.remove('hidden'); scoreDisplay.textContent = `${state.players[0].nickname} ${state.scores[0]} : ${state.scores[1]} ${state.players[1].nickname}`; }
             liveNamedList.innerHTML = '';
             state.namedPlayers.forEach(player => {
                 const pDiv = document.createElement('div'); pDiv.className = 'player-name';
