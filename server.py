@@ -1,6 +1,6 @@
-# server.py (версия 31 - Валидация никнейма)
+# server.py (Финальная версия с логами)
 
-import os, csv, uuid, random, time, re # Импортируем модуль для регулярных выражений
+import os, csv, uuid, random, time
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit, join_room
 from flask_sqlalchemy import SQLAlchemy
@@ -11,7 +11,7 @@ from sqlalchemy.pool import NullPool
 # Константы
 TOTAL_ROUNDS = 16
 PAUSE_BETWEEN_ROUNDS = 10
-TURN_TIME_LIMIT = 15
+ROUND_TIME_BANK = 90.0
 TYPO_THRESHOLD = 85
 
 # Настройка Flask, SQLAlchemy
@@ -143,7 +143,9 @@ class GameState:
                 return True
         return False
 
-active_games, lobby_players = {}, {}
+active_games = {}
+lobby_players = {}
+
 def get_game_state_for_client(game, room_id):
     return { 'roomId': room_id, 'mode': game.mode, 'players': {i: {'nickname': p['nickname'], 'sid': p['sid']} for i, p in game.players.items()}, 'scores': game.scores, 'round': game.current_round + 1, 'totalRounds': TOTAL_ROUNDS, 'clubName': game.current_club_name, 'namedPlayers': game.named_players, 'fullPlayerList': [p['primary_name'] for p in game.players_for_comparison], 'currentPlayerIndex': game.current_player_index, 'timeBanks': game.time_banks }
 
@@ -157,7 +159,8 @@ def start_next_human_turn(room_id):
     time_left = game.time_banks[game.current_player_index]
     if time_left > 0:
         socketio.start_background_task(turn_watcher, room_id, turn_id, time_left)
-    else: on_timer_end(room_id)
+    else:
+        on_timer_end(room_id)
     socketio.emit('turn_updated', get_game_state_for_client(game, room_id), room=room_id)
 
 def turn_watcher(room_id, turn_id, time_limit):
@@ -171,6 +174,7 @@ def on_timer_end(room_id):
     game = game_session['game']
     loser_index = game.current_player_index
     game.time_banks[loser_index] = 0.0
+    print(f"[GAME] Игрок {game.players[loser_index]['nickname']} просрочил время в комнате {room_id}")
     socketio.emit('timer_expired', {'playerIndex': loser_index, 'timeBanks': game.time_banks}, room=room_id)
     if game.mode != 'solo':
         winner_index = 1 - loser_index
@@ -185,6 +189,7 @@ def start_game_loop(room_id):
     game = game_session['game']
     if not game.start_new_round():
         game_over_data = { 'final_scores': game.scores, 'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 'history': game.round_history, 'mode': game.mode, 'end_reason': game.end_reason }
+        print(f"[GAME] Игра в комнате {room_id} окончена. Причина: {game.end_reason}")
         if game.mode == 'pvp':
             player1, player2 = game.players[0]['user_obj'], game.players[1]['user_obj']
             p1_old_rating, p2_old_rating = int(player1.rating), int(player2.rating)
@@ -194,6 +199,7 @@ def start_game_loop(room_id):
         socketio.emit('game_over', game_over_data, room=room_id)
         if room_id in active_games: del active_games[room_id]
         return
+    print(f"[GAME] Комната {room_id}: начинается раунд {game.current_round + 1}. Клуб: {game.current_club_name}")
     socketio.emit('round_started', get_game_state_for_client(game, room_id), room=room_id)
     start_next_human_turn(room_id)
 
@@ -205,6 +211,7 @@ def show_round_summary_and_schedule_next(room_id):
     p2_named_count = len([p for p in game.named_players if p.get('by') == 1])
     round_result = { 'club_name': game.current_club_name, 'p1_named': p1_named_count, 'p2_named': p2_named_count, 'result_type': game_session.get('last_round_end_reason', 'completed') }
     game.round_history.append(round_result)
+    print(f"[GAME] Комната {room_id}: раунд {game.current_round + 1} завершен. Итог: {round_result['result_type']}")
     game_session['skip_votes'] = set()
     summary_data = { 'clubName': game.current_club_name, 'fullPlayerList': [p['primary_name'] for p in game.players_for_comparison], 'namedPlayers': game.named_players, 'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 'scores': game.scores, 'mode': game.mode }
     socketio.emit('round_summary', summary_data, room=room_id)
@@ -216,14 +223,26 @@ def pause_watcher(room_id, pause_id):
     socketio.sleep(PAUSE_BETWEEN_ROUNDS)
     game_session = active_games.get(room_id)
     if game_session and game_session.get('pause_id') == pause_id:
+        print(f"[GAME] Комната {room_id}: пауза окончена, запуск следующего раунда.")
         start_game_loop(room_id)
 
-@socketio.on('disconnect'), @socketio.on('cancel_pvp_search')
-def handle_lobby_exit():
+@socketio.on('connect')
+def handle_connect():
+    print(f"[CONNECTION] Клиент подключился: {request.sid}")
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f"[CONNECTION] Клиент отключился: {request.sid}")
+    if request.sid in lobby_players:
+        nickname = lobby_players.pop(request.sid, {}).get('nickname', 'Unknown')
+        print(f"[LOBBY] Игрок {nickname} покинул лобби из-за отключения.")
+
+@socketio.on('cancel_pvp_search')
+def handle_cancel_pvp_search():
     sid = request.sid
     if sid in lobby_players:
         nickname = lobby_players.pop(sid, {}).get('nickname', 'Unknown')
-        print(f"Игрок {nickname} покинул лобби.")
+        print(f"[LOBBY] Игрок {nickname} отменил поиск.")
 
 @socketio.on('request_skip_pause')
 def handle_request_skip_pause(data):
@@ -231,17 +250,22 @@ def handle_request_skip_pause(data):
     game_session = active_games.get(room_id)
     if not game_session: return
     game = game_session['game']
-    if game.mode in ['solo', 'vs_bot']:
+    print(f"[GAME] Комната {room_id}: получен запрос на пропуск паузы.")
+    if game.mode == 'solo' or game.mode == 'vs_bot':
         game_session['pause_id'] = None
         start_game_loop(room_id)
     elif game.mode == 'pvp':
-        player_index = next((i for i, p in game.players.items() if p['sid'] == request.sid), -1)
+        player_index = -1
+        for i, p in game.players.items():
+            if p['sid'] == request.sid: player_index = i; break
         if player_index != -1:
             game_session['skip_votes'].add(player_index)
             emit('skip_vote_accepted')
             socketio.emit('skip_vote_update', {'count': len(game_session['skip_votes'])}, room=room_id)
+            print(f"[GAME] Комната {room_id}: игрок {game.players[player_index]['nickname']} проголосовал за пропуск ({len(game_session['skip_votes'])}/{len(game.players)}).")
             if len(game_session['skip_votes']) >= len(game.players):
                 game_session['pause_id'] = None
+                print(f"[GAME] Комната {room_id}: оба игрока проголосовали, пропускаем паузу.")
                 start_game_loop(room_id)
 
 @socketio.on('get_leaderboard')
@@ -251,20 +275,12 @@ def handle_get_leaderboard():
         leaderboard_data = [{'nickname': user.nickname, 'rating': int(user.rating)} for user in users]
         emit('leaderboard_data', leaderboard_data)
 
-# --- ИЗМЕНЕНИЕ: Добавлена подробная валидация никнейма ---
 @socketio.on('register_user')
 def handle_register_user(data):
     nickname = data.get('nickname')
-    if not nickname:
-        emit('registration_status', {'success': False, 'message': 'Никнейм не может быть пустым.'})
+    if not nickname or len(nickname) < 3:
+        emit('registration_status', {'success': False, 'message': 'Никнейм должен быть длиннее 2 символов.'})
         return
-    if len(nickname) < 3 or len(nickname) > 15:
-        emit('registration_status', {'success': False, 'message': 'Длина никнейма от 3 до 15 символов.'})
-        return
-    if not re.match(r'^[a-zA-Z0-9а-яА-Я_-]+$', nickname):
-        emit('registration_status', {'success': False, 'message': 'Только буквы, цифры, _ и -.'})
-        return
-
     with app.app_context():
         user_exists = User.query.filter_by(nickname=nickname).first()
         if user_exists:
@@ -277,7 +293,7 @@ def handle_register_user(data):
 def handle_start_game(data):
     sid, mode, nickname = request.sid, data.get('mode'), data.get('nickname')
     player_info = {'sid': sid, 'nickname': nickname} 
-    if mode in ['solo', 'vs_bot']:
+    if mode == 'solo' or mode == 'vs_bot':
         with app.app_context(): player_user = get_or_create_user(nickname)
         player1_info_full = {'sid': sid, 'nickname': nickname, 'user_obj': player_user}
         room_id = str(uuid.uuid4()); join_room(room_id)
@@ -287,25 +303,29 @@ def handle_start_game(data):
             player2_info = {'sid': 'BOT', 'nickname': 'Робо-Квинси', 'user_obj': bot_user}
         game = GameState(player1_info_full, all_clubs_data, player2_info=player2_info, mode=mode)
         active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
+        print(f"[GAME] Игрок {nickname} начал игру в режиме '{mode}'. Комната: {room_id}")
         start_game_loop(room_id)
     elif mode == 'pvp':
         if sid in lobby_players: return
         lobby_players[sid] = player_info
-        print(f"Игрок {nickname} вошел в лобби. Всего: {len(lobby_players)}")
+        print(f"[LOBBY] Игрок {nickname} вошел в лобби. Всего в лобби: {len(lobby_players)}")
         if len(lobby_players) >= 2:
             p1_sid, p1_info = list(lobby_players.items())[0]
             p2_sid, p2_info = list(lobby_players.items())[1]
             del lobby_players[p1_sid]; del lobby_players[p2_sid]
             with app.app_context():
-                p1_user, p2_user = get_or_create_user(p1_info['nickname']), get_or_create_user(p2_info['nickname'])
+                p1_user = get_or_create_user(p1_info['nickname'])
+                p2_user = get_or_create_user(p2_info['nickname'])
             p1_info_full = {'sid': p1_sid, 'nickname': p1_info['nickname'], 'user_obj': p1_user}
             p2_info_full = {'sid': p2_sid, 'nickname': p2_info['nickname'], 'user_obj': p2_user}
-            room_id = str(uuid.uuid4()); join_room(room_id, sid=p1_sid); join_room(room_id, sid=p2_sid)
+            room_id = str(uuid.uuid4())
+            join_room(room_id, sid=p1_sid); join_room(room_id, sid=p2_sid)
             game = GameState(p1_info_full, all_clubs_data, player2_info=p2_info_full, mode='pvp')
             active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
-            print(f"Начинается PvP игра: {p1_info['nickname']} vs {p2_info['nickname']}")
+            print(f"[GAME] Начинается PvP игра: {p1_info['nickname']} vs {p2_info['nickname']}. Комната: {room_id}")
             start_game_loop(room_id)
-        else: emit('waiting_for_opponent')
+        else:
+            emit('waiting_for_opponent')
 
 @socketio.on('submit_guess')
 def handle_submit_guess(data):
@@ -313,25 +333,39 @@ def handle_submit_guess(data):
     game_session = active_games.get(room_id)
     if not game_session: return
     game = game_session['game']
-    if game.players[game.current_player_index].get('sid') != request.sid: return
+    
+    current_player_nickname = game.players[game.current_player_index].get('nickname')
+    if game.players[game.current_player_index].get('sid') != request.sid: 
+        print(f"[SECURITY] Получен ответ от игрока не в свой ход. SID: {request.sid}. Ожидался ход: {current_player_nickname}")
+        return
+    
+    print(f"[GAME] Комната {room_id}: игрок {current_player_nickname} ответил '{guess}'")
     result = game.process_guess(guess)
+    
     if result['result'] in ['correct', 'correct_typo']:
+        print(f" -> Ответ верный (как '{result['player_data']['primary_name']}')")
         time_spent = time.time() - game.turn_start_time
         game_session['turn_id'] = None
         game.time_banks[game.current_player_index] -= time_spent
         if game.time_banks[game.current_player_index] < 0:
-            game.time_banks[game.current_player_index] = 0; on_timer_end(room_id); return
+            game.time_banks[game.current_player_index] = 0
+            on_timer_end(room_id)
+            return
         game.add_named_player(result['player_data'], game.current_player_index)
         emit('guess_result', {'result': result['result'], 'corrected_name': result['player_data']['primary_name']})
         if game.is_round_over():
             game_session['last_round_end_reason'] = 'completed'
-            if game.mode != 'solo': game.scores[0] += 0.5; game.scores[1] += 0.5
+            if game.mode != 'solo':
+                game.scores[0] += 0.5
+                game.scores[1] += 0.5
             show_round_summary_and_schedule_next(room_id)
         else:
             if game.mode == 'solo': start_next_human_turn(room_id)
             elif game.mode == 'vs_bot': socketio.start_background_task(bot_turn, room_id)
             elif game.mode == 'pvp': start_next_human_turn(room_id)
-    else: emit('guess_result', {'result': result['result']})
+    else:
+        print(f" -> Ответ неверный (причина: {result['result']})")
+        emit('guess_result', {'result': result['result']})
 
 @socketio.on('surrender_round')
 def handle_surrender(data):
@@ -339,9 +373,12 @@ def handle_surrender(data):
     game_session = active_games.get(room_id)
     if not game_session: return
     game = game_session['game']
-    if game.players[game.current_player_index].get('sid') != request.sid: return
+    if game.players[game.current_player_index].get('sid') != request.sid: 
+        print(f"[SECURITY] Получен недействительный запрос на сдачу не в свой ход. SID: {request.sid}")
+        return
     game_session['turn_id'] = None 
     game_session['last_round_end_reason'] = 'timeout'
+    print(f"[GAME] Игрок {game.players[game.current_player_index]['nickname']} сдался в комнате {room_id}.")
     on_timer_end(room_id)
 
 def bot_turn(room_id):
@@ -352,13 +389,16 @@ def bot_turn(room_id):
     remaining_players = [p for p in game.players_for_comparison if p['primary_name'] not in game.named_players_primary]
     if remaining_players:
         bot_choice = random.choice(remaining_players)
+        print(f"[GAME] Комната {room_id}: бот '{game.players[1]['nickname']}' ответил '{bot_choice['primary_name']}'")
         game.add_named_player(bot_choice, 1)
         socketio.emit('bot_guessed', {'guess': bot_choice['primary_name']}, room=room_id)
     if not game.is_round_over():
         start_next_human_turn(room_id)
     else:
         game_session['last_round_end_reason'] = 'completed'
-        if game.mode != 'solo': game.scores[0] += 0.5; game.scores[1] += 0.5
+        if game.mode != 'solo':
+            game.scores[0] += 0.5
+            game.scores[1] += 0.5
         show_round_summary_and_schedule_next(room_id)
 
 @app.route('/')
@@ -367,5 +407,5 @@ def index(): return render_template('index.html')
 if __name__ == '__main__':
     if not all_clubs_data: print("КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить players.csv")
     else:
-        print("Сервер запускается...")
+        print("Сервер запускается в локальном режиме...")
         socketio.run(app, host='127.0.0.1', port=5000, debug=True)
