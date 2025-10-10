@@ -36,6 +36,7 @@
         #skip-pause-btn { font-size: 0.9em; padding: 8px 16px; margin-top: 10px; }
         .searching-status::after { display: inline-block; animation: ellipsis 1.5s infinite; content: "."; width: 1em; text-align: left; }
         @keyframes ellipsis { 0% { content: "."; } 33% { content: ".."; } 66% { content: "..."; } }
+        #early-end-explanation { font-size: 0.9em; color: #6c757d; margin-top: -10px; margin-bottom: 10px; }
         #rating-changes-display { margin-top: 15px; font-size: 0.9em; }
         .rating-change { margin-bottom: 5px; }
         .rating-positive { color: #28a745; }
@@ -121,8 +122,6 @@
         const gameOverTitle = document.getElementById('game-over-title'), earlyEndExplanation = document.getElementById('early-end-explanation'), finalScoreDisplay = document.getElementById('final-score-display'), ratingChangesDisplay = document.getElementById('rating-changes-display'), gameHistoryTable = document.getElementById('game-history-table'), backToMenuFromGameOverBtn = document.getElementById('back-to-menu-from-game-over');
         
         function showScreen(screenName) { Object.values(screens).forEach(screen => screen.classList.add('hidden')); if (screens[screenName]) screens[screenName].classList.remove('hidden'); }
-        
-        // --- ИЗМЕНЕНИЕ: Основная логика блокировки поля ввода ---
         function updateGameUI(state) {
             clientState = state;
             gameHeader.textContent = `Тур ${state.round}/${state.totalRounds}: ${state.clubName}`;
@@ -138,8 +137,6 @@
             let timeLeft = state.timeLimit;
             timerDiv.textContent = timeLeft;
             timerInterval = setInterval(() => { timeLeft--; timerDiv.textContent = timeLeft >= 0 ? timeLeft : 0; if (timeLeft < 0) clearInterval(timerInterval); }, 1000);
-
-            // Логика блокировки
             const myTurn = (socket.id === state.players[state.currentPlayerIndex].sid);
             if (myTurn) {
                 guessInput.disabled = false;
@@ -181,7 +178,11 @@
         guessForm.addEventListener('submit', (e) => { e.preventDefault(); const guess = guessInput.value; if (guess && !guessInput.disabled) { socket.emit('submit_guess', { roomId: clientState.roomId, guess: guess }); guessInput.value = ''; } });
         surrenderBtn.addEventListener('click', () => { if(surrenderBtn.disabled) return; gameStatus.textContent = "Вы сдались..."; guessInput.disabled = true; surrenderBtn.disabled = true; socket.emit('surrender_round', { roomId: clientState.roomId }); });
         backToMenuFromGameOverBtn.addEventListener('click', () => resetMenu() & showScreen('mainMenu'));
-        skipPauseBtn.addEventListener('click', () => { skipPauseBtn.disabled = true; if(clientState.mode === 'pvp') { skipPauseBtn.textContent = 'Ожидаем соперника...'; } socket.emit('request_skip_pause', { roomId: clientState.roomId }); });
+        skipPauseBtn.addEventListener('click', () => {
+            skipPauseBtn.disabled = true;
+            if(clientState.mode === 'pvp') { skipPauseBtn.textContent = 'Ожидаем второго...'; }
+            socket.emit('request_skip_pause', { roomId: clientState.roomId });
+        });
         
         socket.on('registration_status', (data) => { if (data.success) { currentUserNickname = data.nickname; localStorage.setItem('rpl_quiz_nickname', currentUserNickname); welcomeNickname.textContent = currentUserNickname; showScreen('mainMenu'); } else { registrationStatus.textContent = data.message; registrationStatus.className = 'error-message'; } });
         socket.on('leaderboard_data', (data) => {
@@ -202,9 +203,8 @@
         socket.on('timer_expired', () => { clearInterval(timerInterval); gameStatus.textContent = '⏱️ Время вышло!'; guessInput.disabled = true; surrenderBtn.disabled = true; });
         socket.on('round_summary', (data) => {
             showScreen('summary');
-            skipPauseBtn.classList.remove('hidden');
-            skipPauseBtn.disabled = false;
-            skipPauseBtn.textContent = 'Пропустить';
+            if (data.mode === 'solo' || data.mode === 'vs_bot' || data.mode === 'pvp') { skipPauseBtn.classList.remove('hidden'); skipPauseBtn.disabled = false; skipPauseBtn.textContent = 'Пропустить'; } 
+            else { skipPauseBtn.classList.add('hidden'); }
             summaryHeader.textContent = `Итоги раунда: ${data.clubName}`;
             if (data.mode === 'solo') {
                 summaryScoreDisplay.classList.add('hidden');
@@ -239,37 +239,54 @@
         });
         socket.on('skip_vote_accepted', () => { skipPauseBtn.textContent = '✓ Ждем второго...'; });
         socket.on('skip_vote_update', (data) => { if (clientState.mode === 'pvp') { skipPauseBtn.textContent = `Пропустить (${data.count}/2)`; } });
+        
         socket.on('game_over', (data) => {
             showScreen('gameOver');
             const player1Name = data.players[0].nickname;
             const player2Name = (data.players[1]) ? data.players[1].nickname : 'Бот';
+
             if (data.final_scores[0] > data.final_scores[1]) { gameOverTitle.textContent = `🏆 Победил ${player1Name}!`; } 
             else if (data.final_scores[1] > data.final_scores[0]) { gameOverTitle.textContent = `🏆 Победил ${player2Name}!`; } 
             else { gameOverTitle.textContent = "🤝 Ничья!"; }
+
             if (data.end_reason === 'unreachable_score') { earlyEndExplanation.textContent = 'Игра завершена досрочно, так как разница в счете стала больше, чем количество оставшихся раундов.'; earlyEndExplanation.classList.remove('hidden'); } 
             else { earlyEndExplanation.classList.add('hidden'); }
+
             finalScoreDisplay.textContent = `${player1Name} ${data.final_scores[0]} : ${data.final_scores[1]} ${player2Name}`;
+            
             if (data.mode === 'pvp' && data.rating_changes) {
                 const p1_change = data.rating_changes.p1.new - data.rating_changes.p1.old;
                 const p2_change = data.rating_changes.p2.new - data.rating_changes.p2.old;
                 const p1_sign = p1_change >= 0 ? '+' : ''; const p2_sign = p2_change >= 0 ? '+' : '';
                 ratingChangesDisplay.innerHTML = `<div class="rating-change">${player1Name}: ${data.rating_changes.p1.old} → ${data.rating_changes.p1.new} (<span class="${p1_change >= 0 ? 'rating-positive':'rating-negative'}">${p1_sign}${p1_change}</span>)</div><div class="rating-change">${player2Name}: ${data.rating_changes.p2.old} → ${data.rating_changes.p2.new} (<span class="${p2_change >= 0 ? 'rating-positive':'rating-negative'}">${p2_sign}${p2_change}</span>)</div>`;
                 ratingChangesDisplay.classList.remove('hidden');
-            } else { ratingChangesDisplay.classList.add('hidden'); }
+            } else {
+                ratingChangesDisplay.classList.add('hidden');
+            }
+
             const tableHead = gameHistoryTable.querySelector('thead');
-            if (data.mode === 'solo') { tableHead.innerHTML = `<tr><th>Клуб</th><th>Названо игроков</th></tr>`; } 
-            else { tableHead.innerHTML = `<tr><th>Клуб</th><th>${player1Name}</th><th>${player2Name}</th></tr>`; }
             const tableBody = gameHistoryTable.querySelector('tbody');
             tableBody.innerHTML = '';
-            data.history.forEach(round => {
-                const row = document.createElement('tr');
-                let p1_score = round.p1_named, p2_score = round.p2_named;
-                if (p1_score > p2_score) p1_score = `<b>${p1_score}</b>`;
-                if (p2_score > p1_score) p2_score = `<b>${p2_score}</b>`;
-                if (data.mode === 'solo') { row.innerHTML = `<td>${round.club_name}</td><td>${p1_score}</td>`; } 
-                else { row.innerHTML = `<td>${round.club_name}</td><td>${p1_score}</td><td>${p2_score}</td>`; }
-                tableBody.appendChild(row);
-            });
+            if (data.mode === 'solo') {
+                tableHead.innerHTML = `<tr><th>Клуб</th><th>Названо</th><th>Итог</th></tr>`;
+                data.history.forEach(round => {
+                    const row = document.createElement('tr');
+                    const resultIcon = round.result_type === 'completed' ? '✓' : '⏱️';
+                    row.innerHTML = `<td>${round.club_name}</td><td>${round.p1_named}</td><td>${resultIcon}</td>`;
+                    tableBody.appendChild(row);
+                });
+            } else {
+                tableHead.innerHTML = `<tr><th>Клуб</th><th>${player1Name}</th><th>${player2Name}</th><th>Итог</th></tr>`;
+                data.history.forEach(round => {
+                    const row = document.createElement('tr');
+                    let p1_score = round.p1_named, p2_score = round.p2_named;
+                    if (p1_score > p2_score) p1_score = `<b>${p1_score}</b>`;
+                    if (p2_score > p1_score) p2_score = `<b>${p2_score}</b>`;
+                    const resultIcon = round.result_type === 'completed' ? '✓' : '⏱️';
+                    row.innerHTML = `<td>${round.club_name}</td><td>${p1_score}</td><td>${p2_score}</td><td>${resultIcon}</td>`;
+                    tableBody.appendChild(row);
+                });
+            }
         });
     </script>
 </body>
