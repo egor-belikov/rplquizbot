@@ -6,3 +6,4 @@ fuzzywuzzy
 python-Levenshtein
 eventlet
 gunicorn
+psycopg2-binary

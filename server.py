@@ -1,4 +1,4 @@
-# server.py (версия 21 - Исправление SyntaxError)
+# server.py (версия 23 - Облачная БД Neon)
 
 import os, csv, uuid, random
 from flask import Flask, render_template, request
@@ -13,14 +13,26 @@ PAUSE_BETWEEN_ROUNDS = 10
 TURN_TIME_LIMIT = 15
 TYPO_THRESHOLD = 85
 
-# Настройка Flask, SQLAlchemy
+# --- Настройка Flask, SQLAlchemy ---
 basedir = os.path.abspath(os.path.dirname(__file__))
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'a_very_secret_key'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'game.db')
+
+# --- ИЗМЕНЕНИЕ: Логика для подключения к облачной БД ---
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if DATABASE_URL:
+    # Render (и другие хостинги) используют postgres://, а SQLAlchemy требует postgresql://
+    app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+else:
+    # Если запускаем локально, используем старый SQLite
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'game.db')
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
+
+# --- Остальной код остается без изменений ---
+# (Привожу его полностью, как и обещал)
 
 # Модель Базы Данных
 class User(db.Model):
@@ -232,16 +244,11 @@ def handle_start_game(data):
         if len(lobby_players) >= 2:
             p1_sid, p1_info = list(lobby_players.items())[0]
             p2_sid, p2_info = list(lobby_players.items())[1]
-            
-            # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
             del lobby_players[p1_sid]
             del lobby_players[p2_sid]
-            
             room_id = str(uuid.uuid4())
-            # ИСПРАВЛЕНИЕ ЗДЕСЬ
             join_room(room_id, sid=p1_sid)
             join_room(room_id, sid=p2_sid)
-            
             game = GameState(p1_info, all_clubs_data, player2_info=p2_info, mode='pvp')
             active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None}
             print(f"Начинается PvP игра: {p1_info['nickname']} vs {p2_info['nickname']}")
