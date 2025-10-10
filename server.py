@@ -1,4 +1,4 @@
-# server.py (версия 23 - Отмена поиска в лобби)
+# server.py (версия 27 - Исправление NameError)
 
 import os, csv, uuid, random
 from flask import Flask, render_template, request
@@ -7,6 +7,10 @@ from flask_sqlalchemy import SQLAlchemy
 from fuzzywuzzy import fuzz
 from glicko2 import Player
 from sqlalchemy.pool import NullPool
+
+# --- ИЗМЕНЕНИЕ: Добавляем monkey_patch в самое начало ---
+import eventlet
+eventlet.monkey_patch()
 
 # Константы
 TOTAL_ROUNDS = 16
@@ -75,6 +79,9 @@ def load_player_data(filename):
             if club_name not in clubs_data: clubs_data[club_name] = []
             clubs_data[club_name].append(player_object)
     return clubs_data
+
+# --- ИЗМЕНЕНИЕ: Загружаем данные один раз при старте сервера ---
+all_clubs_data = load_player_data('players.csv')
 
 class GameState:
     def __init__(self, player1_info, all_clubs, player2_info=None, mode='solo'):
@@ -196,14 +203,6 @@ def handle_skip_pause(data):
         game_session['pause_id'] = None
         start_game_loop(room_id)
 
-# --- НОВЫЙ ОБРАБОТЧИК: Отмена поиска ---
-@socketio.on('cancel_pvp_search')
-def handle_cancel_pvp_search():
-    sid = request.sid
-    if sid in lobby_players:
-        del lobby_players[sid]
-        print(f"Игрок {lobby_players.get(sid, {}).get('nickname')} отменил поиск.")
-
 @socketio.on('get_leaderboard')
 def handle_get_leaderboard():
     with app.app_context():
@@ -229,11 +228,16 @@ def handle_register_user(data):
 def handle_start_game(data):
     sid, mode, nickname = request.sid, data.get('mode'), data.get('nickname')
     
+    # --- ИЗМЕНЕНИЕ: Используем одно имя 'player_info' для всех режимов в начале ---
     player_info = {'sid': sid, 'nickname': nickname} 
+    
     if mode == 'solo' or mode == 'vs_bot':
         with app.app_context():
-            player1_user = get_or_create_user(nickname)
-        player1_info_full = {'sid': sid, 'nickname': nickname, 'user_obj': player1_user}
+            player_user = get_or_create_user(nickname)
+        
+        # Переименовываем, чтобы было понятно, что это полная информация
+        player1_info_full = {'sid': sid, 'nickname': nickname, 'user_obj': player_user}
+        
         room_id = str(uuid.uuid4())
         join_room(room_id)
         player2_info = None
@@ -241,9 +245,12 @@ def handle_start_game(data):
             with app.app_context():
                 bot_user = get_or_create_user('Робо-Квинси')
             player2_info = {'sid': 'BOT', 'nickname': 'Робо-Квинси', 'user_obj': bot_user}
+        
+        # ИСПРАВЛЕНО: Используем правильное имя 'player1_info_full'
         game = GameState(player1_info_full, all_clubs_data, player2_info=player2_info, mode=mode)
         active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None}
         start_game_loop(room_id)
+        
     elif mode == 'pvp':
         if sid in lobby_players: return
         lobby_players[sid] = player_info
@@ -256,11 +263,15 @@ def handle_start_game(data):
             with app.app_context():
                 p1_user = get_or_create_user(p1_info['nickname'])
                 p2_user = get_or_create_user(p2_info['nickname'])
+            
             p1_info_full = {'sid': p1_sid, 'nickname': p1_info['nickname'], 'user_obj': p1_user}
             p2_info_full = {'sid': p2_sid, 'nickname': p2_info['nickname'], 'user_obj': p2_user}
+            
             room_id = str(uuid.uuid4())
             join_room(room_id, sid=p1_sid)
             join_room(room_id, sid=p2_sid)
+            
+            # ИСПРАВЛЕНО: Используем правильные имена 'p1_info_full' и 'p2_info_full'
             game = GameState(p1_info_full, all_clubs_data, player2_info=p2_info_full, mode='pvp')
             active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None}
             print(f"Начинается PvP игра: {p1_info['nickname']} vs {p2_info['nickname']}")
@@ -282,6 +293,8 @@ def handle_submit_guess(data):
         game.add_named_player(player_data, current_player_index)
         if game.mode == 'pvp':
             game.scores[current_player_index] += 1
+        elif game.mode == 'vs_bot' and current_player_index == 0:
+            game.scores[0] += 1
         emit('guess_result', {'result': result['result'], 'corrected_name': player_data['primary_name']})
         if game.is_round_over():
             show_round_summary_and_schedule_next(room_id)
@@ -309,6 +322,7 @@ def bot_turn(room_id):
     if remaining_players:
         bot_choice = random.choice(remaining_players)
         game.add_named_player(bot_choice, 1)
+        if game.mode == 'vs_bot': game.scores[1] += 1
         socketio.emit('bot_guessed', {'guess': bot_choice['primary_name']}, room=room_id)
     if not game.is_round_over():
         start_next_human_turn(room_id)
@@ -319,9 +333,6 @@ def bot_turn(room_id):
 def index(): return render_template('index.html')
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-    all_clubs_data = load_player_data('players.csv')
     if not all_clubs_data: print("КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить players.csv")
     else:
         print("Сервер запускается...")
