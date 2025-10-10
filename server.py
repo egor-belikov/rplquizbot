@@ -1,4 +1,4 @@
-# server.py (версия 29 - Улучшенные итоги игры)
+# server.py (версия 24 - Блокировка ввода)
 
 import os, csv, uuid, random
 from flask import Flask, render_template, request
@@ -55,7 +55,7 @@ def update_ratings(winner_user, loser_user):
         winner_player.update_player([loser_player.rating], [loser_player.rd], [1])
         loser_player.update_player([winner_player.rating], [winner_player.rd], [0])
         winner_user.rating, winner_user.rd, winner_user.vol = winner_player.rating, winner_player.rd, winner_player.vol
-        loser_user.rating, loser_user.rd, loser_user.vol = loser_player.rating, loser_player.rd, loser_user.vol
+        loser_user.rating, loser_user.rd, loser_user.vol = loser_player.rating, loser_player.rd, loser_player.vol
         db.session.commit()
         print(f"Рейтинги обновлены: {winner_user.nickname} ({int(winner_user.rating)}), {loser_user.nickname} ({int(loser_user.rating)})")
 
@@ -89,8 +89,7 @@ class GameState:
         self.current_round, self.current_player_index, self.current_club_name = -1, 0, None
         self.players_for_comparison, self.named_players_primary, self.named_players = [], set(), []
         self.round_history = []
-        self.end_reason = 'normal' # Причина окончания игры
-
+        self.end_reason = 'normal'
     def start_new_round(self):
         if self.is_game_over(): return False
         self.current_round += 1
@@ -119,8 +118,6 @@ class GameState:
         if self.mode != 'solo': self.switch_player()
     def switch_player(self): self.current_player_index = 1 - self.current_player_index
     def is_round_over(self): return len(self.named_players) == len(self.players_for_comparison)
-    
-    # --- ИЗМЕНЕНИЕ: Логика досрочного завершения игры ---
     def is_game_over(self):
         if self.current_round >= TOTAL_ROUNDS - 1:
             self.end_reason = 'normal'
@@ -136,8 +133,9 @@ class GameState:
 active_games = {}
 lobby_players = {}
 
+# --- ИЗМЕНЕНИЕ: Добавляем 'sid' в информацию об игроках ---
 def get_game_state_for_client(game, room_id):
-    return { 'roomId': room_id, 'mode': game.mode, 'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 'scores': game.scores, 'round': game.current_round + 1, 'totalRounds': TOTAL_ROUNDS, 'clubName': game.current_club_name, 'namedPlayers': game.named_players, 'fullPlayerList': [p['primary_name'] for p in game.players_for_comparison], 'currentPlayerIndex': game.current_player_index, 'timeLimit': TURN_TIME_LIMIT }
+    return { 'roomId': room_id, 'mode': game.mode, 'players': {i: {'nickname': p['nickname'], 'sid': p['sid']} for i, p in game.players.items()}, 'scores': game.scores, 'round': game.current_round + 1, 'totalRounds': TOTAL_ROUNDS, 'clubName': game.current_club_name, 'namedPlayers': game.named_players, 'fullPlayerList': [p['primary_name'] for p in game.players_for_comparison], 'currentPlayerIndex': game.current_player_index, 'timeLimit': TURN_TIME_LIMIT }
 
 def start_next_human_turn(room_id):
     game_session = active_games.get(room_id)
@@ -167,30 +165,16 @@ def start_game_loop(room_id):
     if not game_session: return
     game = game_session['game']
     if not game.start_new_round():
-        game_over_data = {
-            'final_scores': game.scores,
-            'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()},
-            'history': game.round_history,
-            'mode': game.mode,
-            'end_reason': game.end_reason
-        }
+        game_over_data = { 'final_scores': game.scores, 'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 'history': game.round_history, 'mode': game.mode, 'end_reason': game.end_reason }
         if game.mode == 'pvp':
             player1, player2 = game.players[0]['user_obj'], game.players[1]['user_obj']
-            p1_old_rating = int(player1.rating)
-            p2_old_rating = int(player2.rating)
-            
+            p1_old_rating, p2_old_rating = int(player1.rating), int(player2.rating)
             if game.scores[0] > game.scores[1]: update_ratings(winner_user=player1, loser_user=player2)
             elif game.scores[1] > game.scores[0]: update_ratings(winner_user=player2, loser_user=player1)
-            
-            game_over_data['rating_changes'] = {
-                'p1': {'old': p1_old_rating, 'new': int(player1.rating)},
-                'p2': {'old': p2_old_rating, 'new': int(player2.rating)}
-            }
-
+            game_over_data['rating_changes'] = { 'p1': {'old': p1_old_rating, 'new': int(player1.rating)}, 'p2': {'old': p2_old_rating, 'new': int(player2.rating)} }
         socketio.emit('game_over', game_over_data, room=room_id)
         if room_id in active_games: del active_games[room_id]
         return
-        
     socketio.emit('round_started', get_game_state_for_client(game, room_id), room=room_id)
     start_next_human_turn(room_id)
 
@@ -202,11 +186,9 @@ def show_round_summary_and_schedule_next(room_id):
     p2_named_count = len([p for p in game.named_players if p.get('by') == 1])
     round_result = { 'club_name': game.current_club_name, 'p1_named': p1_named_count, 'p2_named': p2_named_count }
     game.round_history.append(round_result)
-    
     game_session['skip_votes'] = set()
     summary_data = { 'clubName': game.current_club_name, 'fullPlayerList': [p['primary_name'] for p in game.players_for_comparison], 'namedPlayers': game.named_players, 'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 'scores': game.scores, 'mode': game.mode }
     socketio.emit('round_summary', summary_data, room=room_id)
-    
     pause_id = f"pause_{room_id}_{game.current_round}"
     game_session['pause_id'] = pause_id
     socketio.start_background_task(pause_watcher, room_id, pause_id)
@@ -220,9 +202,15 @@ def pause_watcher(room_id, pause_id):
 @socketio.on('disconnect')
 def handle_disconnect():
     if request.sid in lobby_players:
-        nickname = lobby_players[request.sid].get('nickname', 'Unknown')
-        del lobby_players[request.sid]
+        nickname = lobby_players.pop(request.sid, {}).get('nickname', 'Unknown')
         print(f"Игрок {nickname} покинул лобби.")
+
+@socketio.on('cancel_pvp_search')
+def handle_cancel_pvp_search():
+    sid = request.sid
+    if sid in lobby_players:
+        nickname = lobby_players.pop(sid, {}).get('nickname', 'Unknown')
+        print(f"Игрок {nickname} отменил поиск.")
 
 @socketio.on('request_skip_pause')
 def handle_request_skip_pause(data):
