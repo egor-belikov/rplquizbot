@@ -75,7 +75,10 @@
         <div id="score-display"></div>
         <div id="timer"></div>
         <div id="game-status"></div>
-        <form id="guess-form"><input type="text" id="guess-input" placeholder="Введите фамилию..." autocomplete="off"><button type="submit">Ответить</button></form>
+        <form id="guess-form">
+            <input type="text" id="guess-input" placeholder="Введите фамилию..." autocomplete="off">
+            <button type="submit" id="submit-guess-btn">Ответить</button>
+        </form>
         <div class="players-list" id="live-named-list"></div>
         <button id="surrender-btn">Сдаться</button>
     </div>
@@ -117,15 +120,23 @@
         let currentUserNickname = null, clientState = {}, timerInterval;
         const registrationForm = document.getElementById('registration-form'), nicknameInput = document.getElementById('nickname-input'), registrationStatus = document.getElementById('registration-status'), welcomeNickname = document.getElementById('welcome-nickname');
         const soloBtn = document.getElementById('solo-btn'), vsBotBtn = document.getElementById('vs-bot-btn'), leaderboardBtn = document.getElementById('leaderboard-btn'), backToMenuBtn = document.getElementById('back-to-menu-btn'), leaderboardBody = document.getElementById('leaderboard-body'), pvpBtn = document.getElementById('pvp-btn'), pvpStatus = document.getElementById('pvp-status'), cancelPvpBtn = document.getElementById('cancel-pvp-btn');
-        const gameHeader = document.getElementById('gameHeader'), scoreDisplay = document.getElementById('score-display'), timerDiv = document.getElementById('timer'), gameStatus = document.getElementById('game-status'), guessForm = document.getElementById('guess-form'), guessInput = document.getElementById('guess-input'), liveNamedList = document.getElementById('live-named-list'), surrenderBtn = document.getElementById('surrender-btn');
+        const gameHeader = document.getElementById('gameHeader'), scoreDisplay = document.getElementById('score-display'), timerDiv = document.getElementById('timer'), gameStatus = document.getElementById('game-status'), guessForm = document.getElementById('guess-form'), guessInput = document.getElementById('guess-input'), liveNamedList = document.getElementById('live-named-list'), surrenderBtn = document.getElementById('surrender-btn'), submitGuessBtn = document.getElementById('submit-guess-btn');
         const summaryHeader = document.getElementById('summaryHeader'), summaryScoreDisplay = document.getElementById('summary-score-display'), summaryHumanColumn = document.getElementById('summary-human-column'), summaryBotColumn = document.getElementById('summary-bot-column'), summaryHumanNameHeader = document.getElementById('summary-human-name-header'), summaryBotNameHeader = document.getElementById('summary-bot-name-header'), summaryHumanNamedList = document.getElementById('summary-human-named-list'), summaryBotNamedList = document.getElementById('summary-bot-named-list'), summaryRemainingList = document.getElementById('summary-remaining-list'), summaryCountdown = document.getElementById('summary-countdown'), skipPauseBtn = document.getElementById('skip-pause-btn');
         const gameOverTitle = document.getElementById('game-over-title'), earlyEndExplanation = document.getElementById('early-end-explanation'), finalScoreDisplay = document.getElementById('final-score-display'), ratingChangesDisplay = document.getElementById('rating-changes-display'), gameHistoryTable = document.getElementById('game-history-table'), backToMenuFromGameOverBtn = document.getElementById('back-to-menu-from-game-over');
         
         function showScreen(screenName) { Object.values(screens).forEach(screen => screen.classList.add('hidden')); if (screens[screenName]) screens[screenName].classList.remove('hidden'); }
+        
+        // --- ИЗМЕНЕНИЕ: Полностью переработанная функция ---
         function updateGameUI(state) {
             clientState = state;
+            // Обновление статической информации
             gameHeader.textContent = `Тур ${state.round}/${state.totalRounds}: ${state.clubName}`;
-            if (state.mode === 'solo' || !state.players[1]) { scoreDisplay.classList.add('hidden'); } else { scoreDisplay.classList.remove('hidden'); scoreDisplay.textContent = `${state.players[0].nickname} ${state.scores[0]} : ${state.scores[1]} ${state.players[1].nickname}`; }
+            if (state.mode === 'solo' || !state.players[1]) {
+                scoreDisplay.classList.add('hidden');
+            } else {
+                scoreDisplay.classList.remove('hidden');
+                scoreDisplay.textContent = `${state.players[0].nickname} ${state.scores[0]} : ${state.scores[1]} ${state.players[1].nickname}`;
+            }
             liveNamedList.innerHTML = '';
             state.namedPlayers.forEach(player => {
                 const pDiv = document.createElement('div'); pDiv.className = 'player-name';
@@ -133,23 +144,32 @@
                 pDiv.textContent = author ? `${player.name} (${author})` : player.name;
                 liveNamedList.appendChild(pDiv);
             });
+
+            // Обновление таймера
             clearInterval(timerInterval);
             let timeLeft = state.timeLimit;
             timerDiv.textContent = timeLeft;
             timerInterval = setInterval(() => { timeLeft--; timerDiv.textContent = timeLeft >= 0 ? timeLeft : 0; if (timeLeft < 0) clearInterval(timerInterval); }, 1000);
+
+            // Главная логика блокировки интерфейса
             const myTurn = (socket.id === state.players[state.currentPlayerIndex].sid);
             if (myTurn) {
                 guessInput.disabled = false;
+                submitGuessBtn.disabled = false;
                 surrenderBtn.disabled = false;
+                guessInput.placeholder = 'Введите фамилию...';
                 gameStatus.textContent = 'Ваш ход...';
                 guessInput.focus();
             } else {
                 guessInput.disabled = true;
+                submitGuessBtn.disabled = true;
                 surrenderBtn.disabled = true;
+                guessInput.placeholder = 'Ход соперника...';
                 const opponentName = state.players[state.currentPlayerIndex].nickname;
-                gameStatus.textContent = `Ход соперника (${opponentName})...`;
+                gameStatus.textContent = `Ожидаем ход игрока ${opponentName}...`;
             }
         }
+
         function startGame(mode) {
             if (!currentUserNickname) return;
             soloBtn.disabled = true; vsBotBtn.disabled = true; pvpBtn.disabled = true; leaderboardBtn.disabled = true;
@@ -200,7 +220,7 @@
             else gameStatus.textContent = '❌ Неверно!';
         });
         socket.on('bot_guessed', (data) => { gameStatus.textContent = `Бот назвал: ${data.guess}`; });
-        socket.on('timer_expired', () => { clearInterval(timerInterval); gameStatus.textContent = '⏱️ Время вышло!'; guessInput.disabled = true; surrenderBtn.disabled = true; });
+        socket.on('timer_expired', () => { clearInterval(timerInterval); gameStatus.textContent = '⏱️ Время вышло!'; guessInput.disabled = true; submitGuessBtn.disabled = true; surrenderBtn.disabled = true; });
         socket.on('round_summary', (data) => {
             showScreen('summary');
             if (data.mode === 'solo' || data.mode === 'vs_bot' || data.mode === 'pvp') { skipPauseBtn.classList.remove('hidden'); skipPauseBtn.disabled = false; skipPauseBtn.textContent = 'Пропустить'; } 
@@ -239,31 +259,23 @@
         });
         socket.on('skip_vote_accepted', () => { skipPauseBtn.textContent = '✓ Ждем второго...'; });
         socket.on('skip_vote_update', (data) => { if (clientState.mode === 'pvp') { skipPauseBtn.textContent = `Пропустить (${data.count}/2)`; } });
-        
         socket.on('game_over', (data) => {
             showScreen('gameOver');
             const player1Name = data.players[0].nickname;
             const player2Name = (data.players[1]) ? data.players[1].nickname : 'Бот';
-
             if (data.final_scores[0] > data.final_scores[1]) { gameOverTitle.textContent = `🏆 Победил ${player1Name}!`; } 
             else if (data.final_scores[1] > data.final_scores[0]) { gameOverTitle.textContent = `🏆 Победил ${player2Name}!`; } 
             else { gameOverTitle.textContent = "🤝 Ничья!"; }
-
             if (data.end_reason === 'unreachable_score') { earlyEndExplanation.textContent = 'Игра завершена досрочно, так как разница в счете стала больше, чем количество оставшихся раундов.'; earlyEndExplanation.classList.remove('hidden'); } 
             else { earlyEndExplanation.classList.add('hidden'); }
-
             finalScoreDisplay.textContent = `${player1Name} ${data.final_scores[0]} : ${data.final_scores[1]} ${player2Name}`;
-            
             if (data.mode === 'pvp' && data.rating_changes) {
                 const p1_change = data.rating_changes.p1.new - data.rating_changes.p1.old;
                 const p2_change = data.rating_changes.p2.new - data.rating_changes.p2.old;
                 const p1_sign = p1_change >= 0 ? '+' : ''; const p2_sign = p2_change >= 0 ? '+' : '';
                 ratingChangesDisplay.innerHTML = `<div class="rating-change">${player1Name}: ${data.rating_changes.p1.old} → ${data.rating_changes.p1.new} (<span class="${p1_change >= 0 ? 'rating-positive':'rating-negative'}">${p1_sign}${p1_change}</span>)</div><div class="rating-change">${player2Name}: ${data.rating_changes.p2.old} → ${data.rating_changes.p2.new} (<span class="${p2_change >= 0 ? 'rating-positive':'rating-negative'}">${p2_sign}${p2_change}</span>)</div>`;
                 ratingChangesDisplay.classList.remove('hidden');
-            } else {
-                ratingChangesDisplay.classList.add('hidden');
-            }
-
+            } else { ratingChangesDisplay.classList.add('hidden'); }
             const tableHead = gameHistoryTable.querySelector('thead');
             const tableBody = gameHistoryTable.querySelector('tbody');
             tableBody.innerHTML = '';
