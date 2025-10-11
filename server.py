@@ -52,7 +52,6 @@ def get_or_create_user(nickname, password=None):
 
 def update_ratings(winner_user_obj, loser_user_obj):
     with app.app_context():
-        # Используем merge для "прикрепления" объектов к текущей сессии перед изменением
         winner_user = db.session.merge(winner_user_obj)
         loser_user = db.session.merge(loser_user_obj)
 
@@ -214,12 +213,26 @@ def start_game_loop(room_id):
         game_over_data = { 'final_scores': game.scores, 'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 'history': game.round_history, 'mode': game.mode, 'end_reason': game.end_reason }
         print(f"[GAME] Игра в комнате {room_id} окончена. Причина: {game.end_reason}, Счет: {game.scores[0]}-{game.scores[1]}")
         if game.mode == 'pvp':
-            player1, player2 = game.players[0]['user_obj'], game.players[1]['user_obj']
-            p1_old_rating, p2_old_rating = int(player1.rating), int(player2.rating)
-            if game.scores[0] > game.scores[1]: update_ratings(winner_user_obj=player1, loser_user_obj=player2)
-            elif game.scores[1] > game.scores[0]: update_ratings(winner_user_obj=player2, loser_user_obj=player1)
-            game_over_data['rating_changes'] = { 'p1': {'old': p1_old_rating, 'new': int(player1.rating)}, 'p2': {'old': p2_old_rating, 'new': int(player2.rating)} }
+            p1_obj, p2_obj = game.players[0]['user_obj'], game.players[1]['user_obj']
+            p1_old_rating, p2_old_rating = int(p1_obj.rating), int(p2_obj.rating)
+
+            if game.scores[0] > game.scores[1]: 
+                update_ratings(winner_user_obj=p1_obj, loser_user_obj=p2_obj)
+            elif game.scores[1] > game.scores[0]: 
+                update_ratings(winner_user_obj=p2_obj, loser_user_obj=p1_obj)
+
+            with app.app_context():
+                updated_p1 = User.query.get(p1_obj.id)
+                updated_p2 = User.query.get(p2_obj.id)
+                p1_new_rating = int(updated_p1.rating)
+                p2_new_rating = int(updated_p2.rating)
+
+            game_over_data['rating_changes'] = {
+                'p1': {'old': p1_old_rating, 'new': p1_new_rating},
+                'p2': {'old': p2_old_rating, 'new': p2_new_rating}
+            }
             socketio.emit('leaderboard_data', get_leaderboard_data())
+            
         socketio.emit('game_over', game_over_data, room=room_id)
         if room_id in active_games: del active_games[room_id]
         return
@@ -243,7 +256,7 @@ def show_round_summary_and_schedule_next(room_id):
     game.round_history.append(round_result)
     print(f"[GAME] Комната {room_id}: раунд {game.current_round + 1} завершен. Итог: {round_result['result_type']}")
     game_session['skip_votes'] = set()
-    game_session['last_round_end_reason'] = 'completed' # Сброс на следующий раунд
+    game_session['last_round_end_reason'] = 'completed'
     game_session['last_round_end_player_nickname'] = None
 
     summary_data = { 'clubName': game.current_club_name, 'fullPlayerList': [p['primary_name'] for p in game.players_for_comparison], 'namedPlayers': game.named_players, 'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 'scores': game.scores, 'mode': game.mode }
@@ -366,21 +379,9 @@ def handle_login_user(data):
             print(f"[AUTH] Неудачная попытка входа для игрока: {nickname}")
             emit('auth_status', {'success': False, 'message': 'Неверный пароль.', 'form': 'login'})
 
-@socketio.on('start_game')
-def handle_start_game(data):
-    sid, mode, nickname = request.sid, data.get('mode'), data.get('nickname')
-    if mode in ['solo', 'vs_bot']:
-        with app.app_context(): player_user = get_or_create_user(nickname)
-        player1_info_full = {'sid': sid, 'nickname': nickname, 'user_obj': player_user}
-        room_id = str(uuid.uuid4()); join_room(room_id)
-        player2_info = None
-        if mode == 'vs_bot':
-            with app.app_context(): bot_user = get_or_create_user('Робо-Квинси')
-            player2_info = {'sid': 'BOT', 'nickname': 'Робо-Квинси', 'user_obj': bot_user}
-        game = GameState(player1_info_full, all_clubs_data, player2_info=player2_info, mode=mode)
-        active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
-        print(f"[GAME] Игрок {nickname} начал игру в режиме '{mode}'. Комната: {room_id}")
-        start_game_loop(room_id)
+# Этот обработчик больше не нужен, так как тренировочные режимы скрыты
+# @socketio.on('start_game')
+# ...
 
 @socketio.on('create_game')
 def handle_create_game(data):
@@ -507,24 +508,6 @@ def handle_surrender(data):
     game_session['last_round_end_player_nickname'] = game.players[surrendering_player_index]['nickname']
     print(f"[GAME] Игрок {game.players[surrendering_player_index]['nickname']} сдался в комнате {room_id}.")
     on_timer_end(room_id)
-
-def bot_turn(room_id):
-    game_session = active_games.get(room_id)
-    if not game_session: return
-    game = game_session['game']
-    socketio.sleep(0.5)
-    remaining_players = [p for p in game.players_for_comparison if p['primary_name'] not in game.named_players_primary]
-    if remaining_players:
-        bot_choice = random.choice(remaining_players)
-        print(f"[GAME] Комната {room_id}: бот '{game.players[1]['nickname']}' ответил '{bot_choice['primary_name']}'")
-        game.add_named_player(bot_choice, 1)
-        socketio.emit('bot_guessed', {'guess': bot_choice['primary_name']}, room=room_id)
-    if not game.is_round_over():
-        start_next_human_turn(room_id)
-    else:
-        game_session['last_round_end_reason'] = 'completed'
-        if game.mode != 'solo': game.scores[0] += 0.5; game.scores[1] += 0.5
-        show_round_summary_and_schedule_next(room_id)
 
 @app.route('/')
 def index(): return render_template('index.html')
