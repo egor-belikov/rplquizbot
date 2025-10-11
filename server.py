@@ -1,4 +1,4 @@
-# server.py (Финальная версия - Логин и Пароль)
+# server.py
 
 import os, csv, uuid, random, time, re
 from flask import Flask, render_template, request
@@ -31,7 +31,7 @@ socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nickname = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128), nullable=True) # Новое поле для пароля
+    password_hash = db.Column(db.String(128), nullable=True)
     rating = db.Column(db.Float, default=1500)
     rd = db.Column(db.Float, default=350)
     vol = db.Column(db.Float, default=0.06)
@@ -86,16 +86,25 @@ class GameState:
         self.players = {0: player1_info}
         if player2_info: self.players[1] = player2_info
         self.scores = {0: 0.0, 1: 0.0}
-        self.settings = settings or {'num_rounds': 16, 'time_bank': 90.0}
+        
+        default_settings = {'num_rounds': 16, 'time_bank': 90.0}
+        self.settings = settings or default_settings
+        
         self.num_rounds = self.settings.get('num_rounds', 16)
-        self.game_clubs = random.sample(list(all_clubs_data.keys()), self.num_rounds)
+        # Выбираем случайные клубы в зависимости от настроек игры
+        available_clubs = list(all_clubs_data.keys())
+        self.game_clubs = random.sample(available_clubs, min(self.num_rounds, len(available_clubs)))
+
         self.all_clubs_data = all_clubs_data
         self.current_round, self.current_player_index, self.current_club_name = -1, 0, None
         self.players_for_comparison, self.named_players_primary, self.named_players = [], set(), []
         self.round_history, self.end_reason = [], 'normal'
         self.last_successful_guesser_index, self.previous_round_loser_index = None, None
-        self.time_banks = {0: self.settings.get('time_bank', 90.0), 1: self.settings.get('time_bank', 90.0)}
+        
+        time_bank_setting = self.settings.get('time_bank', 90.0)
+        self.time_banks = {0: time_bank_setting, 1: time_bank_setting}
         self.turn_start_time = 0
+
     def start_new_round(self):
         if self.is_game_over(): return False
         self.current_round += 1
@@ -106,7 +115,11 @@ class GameState:
             else: self.current_player_index = self.current_round % 2
         else: self.current_player_index = 0
         self.previous_round_loser_index = None
-        self.time_banks = {0: self.settings.get('time_bank', 90.0), 1: self.settings.get('time_bank', 90.0)}
+        
+        # Сброс таймеров на старте раунда
+        time_bank_setting = self.settings.get('time_bank', 90.0)
+        self.time_banks = {0: time_bank_setting, 1: time_bank_setting}
+
         self.current_club_name = self.game_clubs[self.current_round]
         player_objects = self.all_clubs_data[self.current_club_name]
         self.players_for_comparison = sorted(player_objects, key=lambda p: p['primary_name'])
@@ -133,9 +146,11 @@ class GameState:
     def switch_player(self): self.current_player_index = 1 - self.current_player_index
     def is_round_over(self): return len(self.named_players) == len(self.players_for_comparison)
     def is_game_over(self):
+        # Проверяем, закончились ли раунды
         if self.current_round >= self.num_rounds - 1:
             self.end_reason = 'normal'
             return True
+        # Проверяем на досрочное завершение
         if len(self.players) > 1:
             score_diff = abs(self.scores[0] - self.scores[1])
             rounds_left = self.num_rounds - (self.current_round + 1)
@@ -230,11 +245,10 @@ def get_lobby_data():
             creator_user = User.query.filter_by(nickname=game_info['creator']['nickname']).first()
             if creator_user:
                 lobby_list.append({
-                    'room_id': room_id,
                     'settings': game_info['settings'],
                     'creator_nickname': creator_user.nickname,
                     'creator_rating': int(creator_user.rating),
-                    'creator_sid': game_info['creator']['sid'] # Добавлено для кнопки "Играть"
+                    'creator_sid': game_info['creator']['sid']
                 })
     return lobby_list
 
@@ -324,19 +338,10 @@ def handle_login_user(data):
         if not user:
             emit('auth_status', {'success': False, 'message': 'Игрок не найден.', 'form': 'login'})
             return
-
-        # Логика миграции для старых аккаунтов
         if not user.password_hash:
-            if password == '123':
-                print(f"[AUTH] Миграция старого аккаунта: {nickname}")
-                user.password_hash = generate_password_hash('123', method='pbkdf2:sha256')
-                db.session.commit()
-                emit('auth_status', {'success': True, 'nickname': nickname, 'form': 'login'})
-            else:
-                print(f"[AUTH] Неверный пароль (123) для старого аккаунта: {nickname}")
-                emit('auth_status', {'success': False, 'message': 'Неверный пароль.', 'form': 'login'})
-        # Стандартная проверка пароля
-        elif check_password_hash(user.password_hash, password):
+             emit('auth_status', {'success': False, 'message': 'У пользователя нет пароля. Обратитесь к администратору.', 'form': 'login'})
+             return
+        if check_password_hash(user.password_hash, password):
             print(f"[AUTH] Игрок {nickname} успешно вошел в систему.")
             emit('auth_status', {'success': True, 'nickname': nickname, 'form': 'login'})
         else:
@@ -368,6 +373,7 @@ def handle_create_game(data):
             print(f"[LOBBY] Игрок {nickname} уже создал игру. Отклонено.")
             return
             
+    # Генерируем уникальный ID для игры, который будет использоваться как room_id
     room_id = str(uuid.uuid4())
     open_games[room_id] = {
         'creator': {'sid': sid, 'nickname': nickname},
@@ -378,27 +384,31 @@ def handle_create_game(data):
 
 @socketio.on('join_game')
 def handle_join_game(data):
-    creator_sid = data.get('creator_sid') # Изменено с room_id на creator_sid
+    creator_sid = data.get('creator_sid')
     joiner_nickname = data.get('nickname')
     
-    room_id = None
+    room_id_to_join = None
     game_to_join = None
     for r_id, g_info in open_games.items():
         if g_info['creator']['sid'] == creator_sid:
-            room_id = r_id
+            room_id_to_join = r_id
             game_to_join = g_info
             break
 
-    if not room_id or not game_to_join:
+    if not room_id_to_join or not game_to_join:
         print(f"[LOBBY] Попытка присоединиться к несуществующей или уже начатой игре. Отклонено.")
         return
         
-    open_games.pop(room_id)
+    # Немедленно удаляем игру из списка открытых, чтобы никто больше не мог присоединиться
+    open_games.pop(room_id_to_join)
+    socketio.emit('update_lobby', get_lobby_data()) # Обновляем лобби для всех остальных
+
     creator_info = game_to_join['creator']
     
     if creator_info['sid'] == request.sid:
         print(f"[LOBBY] Игрок {joiner_nickname} попытался присоединиться к своей же игре. Отклонено.")
-        open_games[room_id] = game_to_join # Возвращаем игру в лобби
+        open_games[room_id_to_join] = game_to_join # Возвращаем игру в лобби
+        socketio.emit('update_lobby', get_lobby_data())
         return
 
     with app.app_context():
@@ -408,15 +418,14 @@ def handle_join_game(data):
     p1_info_full = {'sid': creator_info['sid'], 'nickname': creator_info['nickname'], 'user_obj': p1_user}
     p2_info_full = {'sid': request.sid, 'nickname': joiner_nickname, 'user_obj': p2_user}
     
-    join_room(room_id, sid=p1_info_full['sid'])
-    join_room(room_id, sid=p2_info_full['sid'])
+    join_room(room_id_to_join, sid=p1_info_full['sid'])
+    join_room(room_id_to_join, sid=p2_info_full['sid'])
 
     game = GameState(p1_info_full, all_clubs_data, player2_info=p2_info_full, mode='pvp', settings=game_to_join['settings'])
-    active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
+    active_games[room_id_to_join] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
     
-    print(f"[GAME] Начинается PvP игра: {p1_info_full['nickname']} vs {p2_info_full['nickname']}. Комната: {room_id}")
-    socketio.emit('update_lobby', get_lobby_data()) # Обновляем лобби для всех остальных
-    start_game_loop(room_id) # Начинаем игру для участников комнаты
+    print(f"[GAME] Начинается PvP игра: {p1_info_full['nickname']} vs {p2_info_full['nickname']}. Комната: {room_id_to_join}")
+    start_game_loop(room_id_to_join)
 
 
 @socketio.on('submit_guess')
@@ -490,5 +499,8 @@ def index(): return render_template('index.html')
 if __name__ == '__main__':
     if not all_clubs_data: print("КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить players.csv")
     else:
-        print("Сервер запускается в локальном режиме...")
-        socketio.run(app, host='127.0.0.1', port=5000, debug=True)
+        print("Сервер запускается...")
+        # Для локальной разработки:
+        # socketio.run(app, host='127.0.0.1', port=5000, debug=True)
+        # Для продакшена (если используете gunicorn/eventlet):
+        socketio.run(app)

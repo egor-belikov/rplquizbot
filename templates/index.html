@@ -14,16 +14,28 @@
         .btn-secondary:hover:not(:disabled) { background-color: #5a6268; }
         .btn-danger { background-color: #dc3545; }
         .btn-danger:hover:not(:disabled) { background-color: #c82333; }
-        input[type="text"], input[type="password"] { width: 80%; padding: 10px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 10px; font-size: 1em; }
+        input[type="text"], input[type="password"], input[type="number"] { width: 80%; padding: 10px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 10px; font-size: 1em; }
         h1, h2, h3 { margin-top: 0; }
         .error-message { color: #dc3545; }
         .auth-toggle { font-size: 0.9em; color: #007bff; cursor: pointer; text-decoration: underline; margin-top: 15px; }
-        .lobby-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        /* Стили для лобби */
-        .open-game-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border: 1px solid #eee; border-radius: 8px; margin-bottom: 8px; }
-        .open-game-item .info { text-align: left; }
+        .lobby-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .open-games-container, .training-modes { margin-top: 20px; }
+        .open-game-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border: 1px solid #eee; border-radius: 8px; margin-bottom: 8px; background-color: #fafafa; }
+        .open-game-item .info { text-align: left; flex-grow: 1; }
         .open-game-item .info .creator { font-weight: bold; }
         .open-game-item .info .details { font-size: 0.9em; color: #666; }
+        .open-game-item .play-btn { white-space: nowrap; margin-left: 10px; }
+        
+        /* Стили для экрана конфигурации */
+        .config-form-group { margin-bottom: 15px; }
+        .config-form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .time-input-group { display: flex; justify-content: center; align-items: center; gap: 5px; }
+        .time-input-group input { width: 50px; text-align: center; }
+        .time-input-group button { min-width: 30px; padding: 5px; font-size: 1em; line-height: 1; }
+        .rounds-selector { display: flex; justify-content: center; gap: 10px; margin-top: 5px; }
+        .rounds-selector label { border: 1px solid #ccc; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+        .rounds-selector input { display: none; }
+        .rounds-selector input:checked + label { background-color: #007bff; color: white; border-color: #007bff; }
     </style>
 </head>
 <body>
@@ -68,163 +80,139 @@
         </div>
     </div>
     
+    <div id="config-screen" class="container hidden">
+        <h2>Настройки игры</h2>
+        <div class="config-form-group">
+            <label for="config-league">Лига</label>
+            <input type="text" id="config-league" value="РПЛ" disabled>
+        </div>
+        <div class="config-form-group">
+            <label>Время на раунд</label>
+            <div class="time-input-group">
+                <button id="config-time-min-minus">-</button>
+                <input type="number" id="config-time-min" value="1" min="0" max="10">
+                <span>:</span>
+                <input type="number" id="config-time-sec" value="30" min="0" max="59">
+                <button id="config-time-sec-plus">+</button>
+            </div>
+        </div>
+        <div class="config-form-group">
+            <label>Количество клубов</label>
+            <div class="rounds-selector" id="config-rounds">
+                <input type="radio" name="rounds" id="rounds-3" value="3"><label for="rounds-3">3</label>
+                <input type="radio" name="rounds" id="rounds-5" value="5"><label for="rounds-5">5</label>
+                <input type="radio" name="rounds" id="rounds-8" value="8"><label for="rounds-8">8</label>
+                <input type="radio" name="rounds" id="rounds-16" value="16" checked><label for="rounds-16">16</label>
+            </div>
+        </div>
+        <button id="submit-create-game-btn">Создать игру</button>
+        <button id="back-to-lobby-btn" class="btn-secondary">Назад</button>
+    </div>
+    
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         const socket = io();
         
-        // --- DOM Элементы ---
-        
-        // Экраны
         const screens = {
             auth: document.getElementById('auth-screen'),
             lobby: document.getElementById('lobby-screen'),
-            // Добавьте сюда другие экраны, когда они появятся в HTML
-            // leaderboard: document.getElementById('leaderboard-screen'),
-            // game: document.getElementById('game-screen'),
+            config: document.getElementById('config-screen'),
+            // ... другие экраны
         };
 
-        // Формы аутентификации
+        // --- Элементы DOM ---
         const loginFormContainer = document.getElementById('login-form-container');
         const registerFormContainer = document.getElementById('register-form-container');
-        const loginForm = document.getElementById('login-form');
-        const registerForm = document.getElementById('register-form');
-        const loginNickname = document.getElementById('login-nickname');
-        const loginPassword = document.getElementById('login-password');
-        const loginStatus = document.getElementById('login-status');
-        const registerNickname = document.getElementById('register-nickname');
-        const registerPassword = document.getElementById('register-password');
-        const registerStatus = document.getElementById('register-status');
-        const showRegisterFormBtn = document.getElementById('show-register-form');
-        const showLoginFormBtn = document.getElementById('show-login-form');
-
-        // Лобби
-        const welcomeNickname = document.getElementById('welcome-nickname');
-        const logoutBtn = document.getElementById('logout-btn');
-        const createGameBtn = document.getElementById('create-game-btn');
-        const leaderboardBtn = document.getElementById('leaderboard-btn');
+        const loginForm = document.getElementById('login-form'), loginNickname = document.getElementById('login-nickname'), loginPassword = document.getElementById('login-password'), loginStatus = document.getElementById('login-status');
+        const registerForm = document.getElementById('register-form'), registerNickname = document.getElementById('register-nickname'), registerPassword = document.getElementById('register-password'), registerStatus = document.getElementById('register-status');
+        const showRegisterFormBtn = document.getElementById('show-register-form'), showLoginFormBtn = document.getElementById('show-login-form');
+        
+        const welcomeNickname = document.getElementById('welcome-nickname'), logoutBtn = document.getElementById('logout-btn');
+        const createGameBtn = document.getElementById('create-game-btn'), leaderboardBtn = document.getElementById('leaderboard-btn');
         const openGamesList = document.getElementById('open-games-list');
-        const soloBtn = document.getElementById('solo-btn');
-        const vsBotBtn = document.getElementById('vs-bot-btn');
+        const soloBtn = document.getElementById('solo-btn'), vsBotBtn = document.getElementById('vs-bot-btn');
+        
+        // Элементы экрана конфигурации
+        const configTimeMin = document.getElementById('config-time-min'), configTimeSec = document.getElementById('config-time-sec');
+        const configTimeMinMinus = document.getElementById('config-time-min-minus'), configTimeSecPlus = document.getElementById('config-time-sec-plus');
+        const backToLobbyBtn = document.getElementById('back-to-lobby-btn');
+        const submitCreateGameBtn = document.getElementById('submit-create-game-btn');
 
         let currentUserNickname = null;
 
         // --- Функции ---
         function showScreen(screenName) {
-            Object.values(screens).forEach(screen => {
-                if (screen) screen.classList.add('hidden');
-            });
-            if (screens[screenName]) {
-                screens[screenName].classList.remove('hidden');
-            }
+            Object.values(screens).forEach(screen => screen && screen.classList.add('hidden'));
+            if (screens[screenName]) screens[screenName].classList.remove('hidden');
         }
 
         function startGame(mode) {
-            if (!currentUserNickname) {
-                alert("Ошибка: не удалось определить пользователя. Пожалуйста, войдите заново.");
-                return;
-            }
+            if (!currentUserNickname) return alert("Ошибка: не удалось определить пользователя.");
             socket.emit('start_game', { mode: mode, nickname: currentUserNickname });
         }
 
+        // --- Обработчики событий ---
+        showRegisterFormBtn.addEventListener('click', () => { loginFormContainer.classList.add('hidden'); registerFormContainer.classList.remove('hidden'); });
+        showLoginFormBtn.addEventListener('click', () => { registerFormContainer.classList.add('hidden'); loginFormContainer.classList.remove('hidden'); });
 
-        // --- ОБРАБОТЧИКИ СОБЫТИЙ DOM ---
-
-        // Переключение между формами входа и регистрации
-        showRegisterFormBtn.addEventListener('click', () => {
-            loginFormContainer.classList.add('hidden');
-            registerFormContainer.classList.remove('hidden');
-        });
-        showLoginFormBtn.addEventListener('click', () => {
-            registerFormContainer.classList.add('hidden');
-            loginFormContainer.classList.remove('hidden');
-        });
-
-        // Отправка формы логина
-        loginForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const nickname = loginNickname.value.trim();
-            const password = loginPassword.value;
-            loginStatus.textContent = "Проверка...";
-            socket.emit('login_user', { nickname, password });
-        });
-
-        // Отправка формы регистрации
-        registerForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const nickname = registerNickname.value.trim();
-            const password = registerPassword.value;
-            registerStatus.textContent = "Создание аккаунта...";
-            socket.emit('register_user', { nickname, password });
-        });
-
-        // Выход из аккаунта
+        loginForm.addEventListener('submit', e => { e.preventDefault(); loginStatus.textContent = "Проверка..."; socket.emit('login_user', { nickname: loginNickname.value.trim(), password: loginPassword.value }); });
+        registerForm.addEventListener('submit', e => { e.preventDefault(); registerStatus.textContent = "Создание аккаунта..."; socket.emit('register_user', { nickname: registerNickname.value.trim(), password: registerPassword.value }); });
         logoutBtn.addEventListener('click', () => {
             currentUserNickname = null;
             localStorage.removeItem('rpl_quiz_nickname');
-            
-            loginNickname.value = '';
-            loginPassword.value = '';
-            registerNickname.value = '';
-            registerPassword.value = '';
-            loginStatus.textContent = '';
-            registerStatus.textContent = '';
-
+            loginNickname.value = ''; loginPassword.value = ''; registerNickname.value = ''; registerPassword.value = '';
+            loginStatus.textContent = ''; registerStatus.textContent = '';
             showScreen('auth');
         });
-        
-        // --- ВОЗВРАЩЕННЫЕ ОБРАБОТЧИКИ ДЛЯ КНОПОК ЛОББИ ---
+
+        // Кнопки лобби
+        createGameBtn.addEventListener('click', () => showScreen('config'));
+        backToLobbyBtn.addEventListener('click', () => showScreen('lobby'));
+        leaderboardBtn.addEventListener('click', () => { /* Логика показа рейтинга */ alert("Рейтинг в разработке"); });
         soloBtn.addEventListener('click', () => startGame('solo'));
         vsBotBtn.addEventListener('click', () => startGame('vs_bot'));
-        
-        leaderboardBtn.addEventListener('click', () => {
-             socket.emit('get_leaderboard');
-             // Вам нужно будет добавить обработчик socket.on('leaderboard_data', ...)
-             // и HTML для экрана рейтинга, чтобы это заработало.
-             alert("Запрос рейтинга отправлен. Отображение пока не реализовано.");
+
+        // Логика экрана конфигурации
+        submitCreateGameBtn.addEventListener('click', () => {
+            const settings = {
+                time_bank: parseInt(configTimeMin.value) * 60 + parseInt(configTimeSec.value),
+                num_rounds: parseInt(document.querySelector('#config-rounds input[name="rounds"]:checked').value)
+            };
+            socket.emit('create_game', { nickname: currentUserNickname, settings: settings });
+            showScreen('lobby');
         });
 
-        createGameBtn.addEventListener('click', () => {
-            if (!currentUserNickname) return;
-            // Создаем игру с настройками по умолчанию
-            const defaultSettings = {
-                time_bank: 90,
-                num_rounds: 16
-            };
-            socket.emit('create_game', { nickname: currentUserNickname, settings: defaultSettings });
-            alert("Запрос на создание игры отправлен. Ваша игра появится в списке 'Открытые игры'.");
+        // Управление временем в конфиге
+        configTimeMinMinus.addEventListener('click', () => { if (configTimeMin.value > 0) configTimeMin.value = parseInt(configTimeMin.value) - 1; });
+        configTimeSecPlus.addEventListener('click', () => {
+            let sec = parseInt(configTimeSec.value);
+            if (sec < 59) configTimeSec.value = sec + 1;
+            else { configTimeSec.value = 0; configTimeMin.value = parseInt(configTimeMin.value) + 1; }
         });
-        
-        // Присоединение к игре из лобби
-        openGamesList.addEventListener('click', (e) => {
+
+
+        // Присоединение к игре
+        openGamesList.addEventListener('click', e => {
             if (e.target.classList.contains('play-btn')) {
                 const creatorSid = e.target.dataset.creatorSid;
                 if (currentUserNickname) {
                     socket.emit('join_game', { creator_sid: creatorSid, nickname: currentUserNickname });
-                } else {
-                    alert("Ошибка: не удалось определить вашего пользователя. Попробуйте перезайти.");
-                }
+                } else { alert("Ошибка: не удалось определить пользователя."); }
             }
         });
 
-        // --- ОБРАБОТЧИКИ СОБЫТИЙ SOCKET.IO ---
-
-        // Ответ от сервера на попытку входа/регистрации
-        socket.on('auth_status', (data) => {
+        // --- Обработчики Socket.IO ---
+        socket.on('auth_status', data => {
             const statusDiv = document.getElementById(`${data.form}-status`);
             if (data.success) {
                 currentUserNickname = data.nickname;
                 localStorage.setItem('rpl_quiz_nickname', currentUserNickname);
                 welcomeNickname.textContent = currentUserNickname;
                 showScreen('lobby');
-            } else {
-                if (statusDiv) {
-                    statusDiv.textContent = data.message;
-                }
-            }
+            } else { if (statusDiv) statusDiv.textContent = data.message; }
         });
-        
-        // Обновление списка открытых игр в лобби
-        socket.on('update_lobby', (data) => {
+
+        socket.on('update_lobby', data => {
             openGamesList.innerHTML = '';
             if (!data || data.length === 0) {
                 openGamesList.innerHTML = '<p>Нет открытых игр. Создайте свою!</p>';
@@ -245,23 +233,16 @@
                 openGamesList.appendChild(gameItem);
             });
         });
-        
-        // Тут будут другие обработчики от сервера, например, 'round_started', 'game_over' и т.д.
-        // socket.on('round_started', (data) => { ... });
 
-        // --- ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ СТРАНИЦЫ ---
+        // Инициализация
         window.addEventListener('load', () => {
             const savedNickname = localStorage.getItem('rpl_quiz_nickname');
             if (savedNickname) {
                 currentUserNickname = savedNickname;
                 welcomeNickname.textContent = currentUserNickname;
                 showScreen('lobby');
-                // Запрос на обновление лобби будет отправлен автоматически при событии 'connect' от сокета
-            } else {
-                showScreen('auth');
-            }
+            } else { showScreen('auth'); }
         });
-
     </script>
 </body>
 </html>
