@@ -250,7 +250,6 @@ def handle_disconnect():
             leaver_index, winner_index = -1, -1
             if game.players.get(0, {}).get('sid') == request.sid: leaver_index, winner_index = 0, 1
             elif game.players.get(1, {}).get('sid') == request.sid: leaver_index, winner_index = 1, 0
-            
             if leaver_index != -1:
                 leaver_nickname = game.players[leaver_index]['nickname']
                 if len(game.players) > 1:
@@ -258,6 +257,7 @@ def handle_disconnect():
                     winner_sid = game.players[winner_index]['sid']
                     print(f"[DISCONNECT] Игрок {leaver_nickname} вышел из игры {room_id}. Победа присуждена {winner_nickname}.")
                     if winner_sid != 'BOT':
+                        print(f"[DISCONNECT] Отправляем уведомление игроку {winner_nickname} ({winner_sid}).")
                         socketio.emit('opponent_disconnected', {'winner': winner_nickname}, to=winner_sid)
                 del active_games[room_id]
                 break
@@ -270,25 +270,20 @@ def handle_check_status(data):
     if not nickname:
         emit('status_ok', {'needs_registration': True})
         return
-
-    # Ищем, не находится ли игрок в активной игре
     for room_id, game_session in active_games.items():
         game = game_session['game']
         for index, player in game.players.items():
             if player['nickname'] == nickname:
                 print(f"[STATUS] Игрок {nickname} найден в активной игре {room_id}. Восстанавливаем сессию.")
-                player['sid'] = sid # Обновляем SID
+                player['sid'] = sid
                 join_room(room_id)
                 emit('reconnect_to_game', get_game_state_for_client(game, room_id))
                 return
-
-    # Чистим за ним старые комнаты в лобби
     stale_room_sid = next((creator_sid for creator_sid, info in open_games.items() if info['creator']['nickname'] == nickname), None)
     if stale_room_sid:
         del open_games[stale_room_sid]
         print(f"[LOBBY] Удалена старая комната игрока {nickname}.")
         socketio.emit('update_lobby', get_lobby_data())
-    
     emit('status_ok', {'needs_registration': False})
 
 @socketio.on('cancel_pvp_search')
@@ -307,7 +302,8 @@ def handle_request_skip_pause(data):
     game = game_session['game']
     print(f"[GAME] Комната {room_id}: получен запрос на пропуск паузы.")
     if game.mode in ['solo', 'vs_bot']:
-        game_session['pause_id'] = None; start_game_loop(room_id)
+        game_session['pause_id'] = None
+        start_game_loop(room_id)
     elif game.mode == 'pvp':
         player_index = next((i for i, p in game.players.items() if p['sid'] == request.sid), -1)
         if player_index != -1:
