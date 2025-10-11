@@ -262,7 +262,7 @@
             submitGuessBtn.disabled = !isMyTurn;
             surrenderBtn.disabled = !isMyTurn;
             guessInput.placeholder = isMyTurn ? 'Введите фамилию...' : 'Ход соперника...';
-            guessInput.disabled = false; // --- ИЗМЕНЕНИЕ: Поле ввода всегда активно
+            guessInput.disabled = false;
             gameStatus.textContent = isMyTurn ? 'Ваш ход...' : `Ожидаем ход игрока ${state.players[activePlayerIndex].nickname}...`;
 
             if(isMyTurn) guessInput.focus();
@@ -275,7 +275,7 @@
                 const pDiv = document.createElement('div');
                 pDiv.className = 'player-name';
                 const author = state.players[player.by] ? `(${state.players[player.by].nickname})` : '';
-                pDiv.textContent = `${player.name} ${author}`;
+                pDiv.textContent = `${player.full_name} ${author}`;
                 liveNamedList.prepend(pDiv);
             });
 
@@ -439,12 +439,12 @@
             summaryBotNamedList.innerHTML = ''; 
             summaryRemainingList.innerHTML = '';
             
-            const allNamedPlayerNames = new Set(data.namedPlayers.map(p => p.name));
+            const allNamedPlayerNames = new Set(data.namedPlayers.map(p => p.full_name));
             
             data.namedPlayers.forEach(player => {
                 const pDiv = document.createElement('div');
                 pDiv.className = 'player-name';
-                pDiv.textContent = player.name;
+                pDiv.textContent = player.full_name;
                 if (player.by === 0) summaryHumanNamedList.appendChild(pDiv);
                 else summaryBotNamedList.appendChild(pDiv);
             });

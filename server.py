@@ -68,7 +68,6 @@ def update_ratings(winner_user_obj, loser_user_obj):
         print(f"[RATING] Рейтинги обновлены и сохранены в БД: {winner_user.nickname} ({int(winner_user.rating)}), {loser_user.nickname} ({int(loser_user.rating)})")
 
 def get_leaderboard_data():
-    """Вспомогательная функция для получения данных рейтинга."""
     with app.app_context():
         users = User.query.filter(User.nickname != 'Робо-Квинси').order_by(User.rating.desc()).all()
         return [{'nickname': user.nickname, 'rating': int(user.rating)} for user in users]
@@ -85,7 +84,12 @@ def load_player_data(filename):
             if len(row) > 2:
                 for alias in row[2:]:
                     if alias: aliases.add(alias)
-            player_object = { 'primary_name': primary_surname, 'valid_normalized_names': {a.strip().lower().replace('ё', 'е') for a in aliases} }
+            
+            player_object = { 
+                'full_name': player_name_full, # <-- ДОБАВЛЕНО: Полное имя
+                'primary_name': primary_surname, 
+                'valid_normalized_names': {a.strip().lower().replace('ё', 'е') for a in aliases} 
+            }
             if club_name not in clubs_data: clubs_data[club_name] = []
             clubs_data[club_name].append(player_object)
     return clubs_data
@@ -108,7 +112,7 @@ class GameState:
 
         self.all_clubs_data = all_clubs_data
         self.current_round, self.current_player_index, self.current_club_name = -1, 0, None
-        self.players_for_comparison, self.named_players_primary, self.named_players = [], set(), []
+        self.players_for_comparison, self.named_players_full_names, self.named_players = [], set(), [] # <-- ИЗМЕНЕНО
         self.round_history, self.end_reason = [], 'normal'
         self.last_successful_guesser_index, self.previous_round_loser_index = None, None
         
@@ -133,26 +137,48 @@ class GameState:
         self.current_club_name = self.game_clubs[self.current_round]
         player_objects = self.all_clubs_data[self.current_club_name]
         self.players_for_comparison = sorted(player_objects, key=lambda p: p['primary_name'])
-        self.named_players_primary, self.named_players = set(), []
+        self.named_players_full_names, self.named_players = set(), []
         return True
+
     def process_guess(self, guess):
         guess_norm = guess.strip().lower().replace('ё', 'е')
+        
+        # Прямое совпадение
         for player_data in self.players_for_comparison:
-            if player_data['primary_name'] in self.named_players_primary: continue
-            if guess_norm in player_data['valid_normalized_names']: return {'result': 'correct', 'player_data': player_data}
+            # Ищем игрока с такой фамилией, который еще НЕ был назван
+            if guess_norm in player_data['valid_normalized_names'] and player_data['full_name'] not in self.named_players_full_names:
+                return {'result': 'correct', 'player_data': player_data}
+
+        # Если прямого совпадения нет (или все однофамильцы уже названы), ищем опечатку
         best_match_player, max_ratio = None, 0
         for player_data in self.players_for_comparison:
-            if player_data['primary_name'] in self.named_players_primary: continue
+            # Ищем только среди тех, кто еще НЕ был назван
+            if player_data['full_name'] in self.named_players_full_names:
+                continue
             primary_norm = player_data['primary_name'].lower().replace('ё', 'е')
             ratio = fuzz.ratio(guess_norm, primary_norm)
-            if ratio > max_ratio: max_ratio, best_match_player = ratio, player_data
-        if max_ratio >= TYPO_THRESHOLD: return {'result': 'correct_typo', 'player_data': best_match_player}
+            if ratio > max_ratio:
+                max_ratio, best_match_player = ratio, player_data
+        
+        if max_ratio >= TYPO_THRESHOLD:
+            return {'result': 'correct_typo', 'player_data': best_match_player}
+        
+        # Если ничего не подошло, проверяем, не был ли игрок с такой фамилией уже назван
+        for player_data in self.players_for_comparison:
+             if guess_norm in player_data['valid_normalized_names']:
+                 # Если мы здесь, значит все игроки с этой фамилией уже в списке названных
+                 return {'result': 'already_named'}
+
         return {'result': 'not_found'}
+
     def add_named_player(self, player_data, player_index):
-        self.named_players.append({'name': player_data['primary_name'], 'by': player_index})
-        self.named_players_primary.add(player_data['primary_name'])
+        # Добавляем полное имя в список
+        self.named_players.append({'full_name': player_data['full_name'], 'name': player_data['primary_name'], 'by': player_index})
+        # В сет для проверки уникальности добавляем тоже полное имя
+        self.named_players_full_names.add(player_data['full_name'])
         self.last_successful_guesser_index = player_index
         if self.mode != 'solo': self.switch_player()
+
     def switch_player(self): self.current_player_index = 1 - self.current_player_index
     def is_round_over(self): return len(self.named_players) == len(self.players_for_comparison)
     def is_game_over(self):
@@ -169,7 +195,19 @@ class GameState:
 
 active_games, open_games = {}, {}
 def get_game_state_for_client(game, room_id):
-    return { 'roomId': room_id, 'mode': game.mode, 'players': {i: {'nickname': p['nickname'], 'sid': p['sid']} for i, p in game.players.items()}, 'scores': game.scores, 'round': game.current_round + 1, 'totalRounds': game.num_rounds, 'clubName': game.current_club_name, 'namedPlayers': game.named_players, 'fullPlayerList': [p['primary_name'] for p in game.players_for_comparison], 'currentPlayerIndex': game.current_player_index, 'timeBanks': game.time_banks }
+    return { 
+        'roomId': room_id, 
+        'mode': game.mode, 
+        'players': {i: {'nickname': p['nickname'], 'sid': p['sid']} for i, p in game.players.items()}, 
+        'scores': game.scores, 
+        'round': game.current_round + 1, 
+        'totalRounds': game.num_rounds, 
+        'clubName': game.current_club_name, 
+        'namedPlayers': game.named_players, 
+        'fullPlayerList': [p['full_name'] for p in game.players_for_comparison], # <-- Отправляем полные имена
+        'currentPlayerIndex': game.current_player_index, 
+        'timeBanks': game.time_banks 
+    }
 
 def start_next_human_turn(room_id):
     game_session = active_games.get(room_id)
@@ -214,7 +252,8 @@ def start_game_loop(room_id):
         print(f"[GAME] Игра в комнате {room_id} окончена. Причина: {game.end_reason}, Счет: {game.scores[0]}-{game.scores[1]}")
         if game.mode == 'pvp':
             p1_obj, p2_obj = game.players[0]['user_obj'], game.players[1]['user_obj']
-            p1_old_rating, p2_old_rating = int(p1_obj.rating), int(p2_obj.rating)
+            p1_old_rating = int(p1_obj.rating)
+            p2_old_rating = int(p2_obj.rating)
 
             if game.scores[0] > game.scores[1]: 
                 update_ratings(winner_user_obj=p1_obj, loser_user_obj=p2_obj)
@@ -222,6 +261,7 @@ def start_game_loop(room_id):
                 update_ratings(winner_user_obj=p2_obj, loser_user_obj=p1_obj)
 
             with app.app_context():
+                # Перечитываем данные из БД, чтобы получить актуальный рейтинг
                 updated_p1 = User.query.get(p1_obj.id)
                 updated_p2 = User.query.get(p2_obj.id)
                 p1_new_rating = int(updated_p1.rating)
@@ -259,7 +299,14 @@ def show_round_summary_and_schedule_next(room_id):
     game_session['last_round_end_reason'] = 'completed'
     game_session['last_round_end_player_nickname'] = None
 
-    summary_data = { 'clubName': game.current_club_name, 'fullPlayerList': [p['primary_name'] for p in game.players_for_comparison], 'namedPlayers': game.named_players, 'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 'scores': game.scores, 'mode': game.mode }
+    summary_data = { 
+        'clubName': game.current_club_name, 
+        'fullPlayerList': [p['full_name'] for p in game.players_for_comparison], # <-- Отправляем полные имена
+        'namedPlayers': game.named_players, 
+        'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 
+        'scores': game.scores, 
+        'mode': game.mode 
+    }
     socketio.emit('round_summary', summary_data, room=room_id)
     pause_id = f"pause_{room_id}_{game.current_round}"
     game_session['pause_id'] = pause_id
@@ -379,10 +426,6 @@ def handle_login_user(data):
             print(f"[AUTH] Неудачная попытка входа для игрока: {nickname}")
             emit('auth_status', {'success': False, 'message': 'Неверный пароль.', 'form': 'login'})
 
-# Этот обработчик больше не нужен, так как тренировочные режимы скрыты
-# @socketio.on('start_game')
-# ...
-
 @socketio.on('create_game')
 def handle_create_game(data):
     sid, nickname, settings = request.sid, data.get('nickname'), data.get('settings')
@@ -473,22 +516,20 @@ def handle_submit_guess(data):
     print(f"[GAME] Комната {room_id}: игрок {current_player_nickname} ответил '{guess}'")
     result = game.process_guess(guess)
     if result['result'] in ['correct', 'correct_typo']:
-        print(f" -> Ответ верный (как '{result['player_data']['primary_name']}')")
+        print(f" -> Ответ верный (как '{result['player_data']['full_name']}')")
         time_spent = time.time() - game.turn_start_time
         game_session['turn_id'] = None
         game.time_banks[game.current_player_index] -= time_spent
         if game.time_banks[game.current_player_index] < 0:
             game.time_banks[game.current_player_index] = 0; on_timer_end(room_id); return
         game.add_named_player(result['player_data'], game.current_player_index)
-        emit('guess_result', {'result': result['result'], 'corrected_name': result['player_data']['primary_name']})
+        emit('guess_result', {'result': result['result'], 'corrected_name': result['player_data']['full_name']}) # Отправляем полное имя
         if game.is_round_over():
             game_session['last_round_end_reason'] = 'completed'
             if game.mode != 'solo': game.scores[0] += 0.5; game.scores[1] += 0.5
             show_round_summary_and_schedule_next(room_id)
         else:
-            if game.mode == 'solo': start_next_human_turn(room_id)
-            elif game.mode == 'vs_bot': socketio.start_background_task(bot_turn, room_id)
-            elif game.mode == 'pvp': start_next_human_turn(room_id)
+            start_next_human_turn(room_id)
     else:
         print(f" -> Ответ неверный (причина: {result['result']})")
         emit('guess_result', {'result': result['result']})
