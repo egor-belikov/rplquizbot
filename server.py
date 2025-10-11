@@ -50,16 +50,23 @@ def get_or_create_user(nickname, password=None):
         print(f"[DB] Создан новый пользователь: {nickname}")
     return user
 
-def update_ratings(winner_user, loser_user):
+def update_ratings(winner_user_obj, loser_user_obj):
     with app.app_context():
+        # Используем merge для "прикрепления" объектов к текущей сессии перед изменением
+        winner_user = db.session.merge(winner_user_obj)
+        loser_user = db.session.merge(loser_user_obj)
+
         winner_player = Player(rating=winner_user.rating, rd=winner_user.rd, vol=winner_user.vol)
         loser_player = Player(rating=loser_user.rating, rd=loser_user.rd, vol=loser_user.vol)
+        
         winner_player.update_player([loser_player.rating], [loser_player.rd], [1])
         loser_player.update_player([winner_player.rating], [winner_player.rd], [0])
+        
         winner_user.rating, winner_user.rd, winner_user.vol = winner_player.rating, winner_player.rd, winner_player.vol
         loser_user.rating, loser_user.rd, loser_user.vol = loser_player.rating, loser_player.rd, loser_player.vol
+        
         db.session.commit()
-        print(f"[RATING] Рейтинги обновлены: {winner_user.nickname} ({int(winner_user.rating)}), {loser_user.nickname} ({int(loser_user.rating)})")
+        print(f"[RATING] Рейтинги обновлены и сохранены в БД: {winner_user.nickname} ({int(winner_user.rating)}), {loser_user.nickname} ({int(loser_user.rating)})")
 
 def get_leaderboard_data():
     """Вспомогательная функция для получения данных рейтинга."""
@@ -194,7 +201,9 @@ def on_timer_end(room_id):
         winner_index = 1 - loser_index
         game.scores[winner_index] += 1
         game.previous_round_loser_index = loser_index
+    
     game_session['last_round_end_reason'] = 'timeout'
+    game_session['last_round_end_player_nickname'] = game.players[loser_index]['nickname']
     show_round_summary_and_schedule_next(room_id)
 
 def start_game_loop(room_id):
@@ -207,10 +216,9 @@ def start_game_loop(room_id):
         if game.mode == 'pvp':
             player1, player2 = game.players[0]['user_obj'], game.players[1]['user_obj']
             p1_old_rating, p2_old_rating = int(player1.rating), int(player2.rating)
-            if game.scores[0] > game.scores[1]: update_ratings(winner_user=player1, loser_user=player2)
-            elif game.scores[1] > game.scores[0]: update_ratings(winner_user=player2, loser_user=player1)
+            if game.scores[0] > game.scores[1]: update_ratings(winner_user_obj=player1, loser_user_obj=player2)
+            elif game.scores[1] > game.scores[0]: update_ratings(winner_user_obj=player2, loser_user_obj=player1)
             game_over_data['rating_changes'] = { 'p1': {'old': p1_old_rating, 'new': int(player1.rating)}, 'p2': {'old': p2_old_rating, 'new': int(player2.rating)} }
-            # Рассылаем всем обновленный рейтинг
             socketio.emit('leaderboard_data', get_leaderboard_data())
         socketio.emit('game_over', game_over_data, room=room_id)
         if room_id in active_games: del active_games[room_id]
@@ -225,10 +233,19 @@ def show_round_summary_and_schedule_next(room_id):
     game = game_session['game']
     p1_named_count = len([p for p in game.named_players if p['by'] == 0])
     p2_named_count = len([p for p in game.named_players if p.get('by') == 1])
-    round_result = { 'club_name': game.current_club_name, 'p1_named': p1_named_count, 'p2_named': p2_named_count, 'result_type': game_session.get('last_round_end_reason', 'completed') }
+    round_result = { 
+        'club_name': game.current_club_name, 
+        'p1_named': p1_named_count, 
+        'p2_named': p2_named_count, 
+        'result_type': game_session.get('last_round_end_reason', 'completed'),
+        'player_nickname': game_session.get('last_round_end_player_nickname', None)
+    }
     game.round_history.append(round_result)
     print(f"[GAME] Комната {room_id}: раунд {game.current_round + 1} завершен. Итог: {round_result['result_type']}")
     game_session['skip_votes'] = set()
+    game_session['last_round_end_reason'] = 'completed' # Сброс на следующий раунд
+    game_session['last_round_end_player_nickname'] = None
+
     summary_data = { 'clubName': game.current_club_name, 'fullPlayerList': [p['primary_name'] for p in game.players_for_comparison], 'namedPlayers': game.named_players, 'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 'scores': game.scores, 'mode': game.mode }
     socketio.emit('round_summary', summary_data, room=room_id)
     pause_id = f"pause_{room_id}_{game.current_round}"
@@ -468,18 +485,12 @@ def handle_submit_guess(data):
             if game.mode != 'solo': game.scores[0] += 0.5; game.scores[1] += 0.5
             show_round_summary_and_schedule_next(room_id)
         else:
-            # Не переключаем ход для solo-режима
-            if game.mode == 'solo':
-                start_next_human_turn(room_id) # Ход остается у того же игрока
-            elif game.mode == 'vs_bot':
-                socketio.start_background_task(bot_turn, room_id)
-            elif game.mode == 'pvp':
-                start_next_human_turn(room_id)
+            if game.mode == 'solo': start_next_human_turn(room_id)
+            elif game.mode == 'vs_bot': socketio.start_background_task(bot_turn, room_id)
+            elif game.mode == 'pvp': start_next_human_turn(room_id)
     else:
-        # Для остальных результатов (not_found, already_named)
         print(f" -> Ответ неверный (причина: {result['result']})")
         emit('guess_result', {'result': result['result']})
-
 
 @socketio.on('surrender_round')
 def handle_surrender(data):
@@ -487,12 +498,14 @@ def handle_surrender(data):
     game_session = active_games.get(room_id)
     if not game_session: return
     game = game_session['game']
-    if game.players[game.current_player_index].get('sid') != request.sid:
+    surrendering_player_index = game.current_player_index
+    if game.players[surrendering_player_index].get('sid') != request.sid:
         print(f"[SECURITY] Получен недействительный запрос на сдачу не в свой ход. SID: {request.sid}")
         return
     game_session['turn_id'] = None 
-    game_session['last_round_end_reason'] = 'timeout'
-    print(f"[GAME] Игрок {game.players[game.current_player_index]['nickname']} сдался в комнате {room_id}.")
+    game_session['last_round_end_reason'] = 'surrender'
+    game_session['last_round_end_player_nickname'] = game.players[surrendering_player_index]['nickname']
+    print(f"[GAME] Игрок {game.players[surrendering_player_index]['nickname']} сдался в комнате {room_id}.")
     on_timer_end(room_id)
 
 def bot_turn(room_id):

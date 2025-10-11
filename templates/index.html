@@ -15,7 +15,7 @@
         .btn-danger { background-color: #dc3545; }
         .btn-danger:hover:not(:disabled) { background-color: #c82333; }
         input[type="text"], input[type="password"], input[type="number"] { width: 80%; padding: 10px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 10px; font-size: 1em; }
-        h1, h2, h3 { margin-top: 0; }
+        h1, h2, h3, h4 { margin-top: 0; }
         .error-message { color: #dc3545; }
         .auth-toggle { font-size: 0.9em; color: #007bff; cursor: pointer; text-decoration: underline; margin-top: 15px; }
         .lobby-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
@@ -47,8 +47,8 @@
         .summary-columns { display: flex; justify-content: space-around; text-align: left; margin: 15px 0; }
         .summary-column { width: 45%; padding: 10px; border: 1px solid #e0e0e0; border-radius: 8px; background-color: #f9f9f9; }
         .summary-column h4 { margin-top: 0; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid #ddd; }
-        .summary-column .player-name-list { max-height: 150px; overflow-y: auto; text-align: left;}
-        .summary-column .player-name { padding: 4px 8px; border-radius: 4px; margin-bottom: 4px; background-color: #fff; border: 1px solid #eee;}
+        .player-name-list { max-height: 150px; overflow-y: auto; text-align: left;}
+        .player-name-list .player-name { padding: 4px 8px; border-radius: 4px; margin-bottom: 4px; background-color: #fff; border: 1px solid #eee;}
     </style>
 </head>
 <body>
@@ -182,7 +182,7 @@
         <p id="early-end-explanation" class="hidden">Игра завершена досрочно.</p>
         <h3 id="final-score-display">Игрок1 10 : 6 Игрок2</h3>
         <div id="rating-changes-display" class="hidden" style="margin-bottom: 15px;"></div>
-        <div id="game-history-container" class="hidden">
+        <div id="game-history-container">
             <h4>История раундов</h4>
             <table id="game-history-table">
                 <thead></thead>
@@ -258,7 +258,7 @@
             clientState = state;
             let myPlayerIndex = -1;
             for (const i in state.players) { if (state.players[i].sid === socket.id) { myPlayerIndex = parseInt(i, 10); break; } }
-            if (myPlayerIndex === -1) return; // Не нашли себя в игре, выходим
+            if (myPlayerIndex === -1) return;
 
             const opponentPlayerIndex = 1 - myPlayerIndex;
             const activePlayerIndex = state.currentPlayerIndex;
@@ -409,7 +409,6 @@
                 row.innerHTML = `<td>${index + 1}</td><td>${user.nickname}</td><td>${user.rating}</td>`;
                 leaderboardBody.appendChild(row);
             });
-            // Не переключаем экран, если он не активен, просто обновляем данные
         });
 
         socket.on('round_started', (state) => {
@@ -434,7 +433,6 @@
             gameStatus.textContent = message;
             
             gameStatusTimeout = setTimeout(() => {
-                // Если ход все еще наш, возвращаем стандартное сообщение
                 if (isMyTurn) {
                     gameStatus.textContent = 'Ваш ход...';
                 }
@@ -506,7 +504,7 @@
 
             const tableHead = gameHistoryTable.querySelector('thead');
             const tableBody = gameHistoryTable.querySelector('tbody');
-            tableHead.innerHTML = `<tr><th>Клуб</th><th>${player1Name}</th><th>${player2Name}</th><th>Победитель</th></tr>`;
+            tableHead.innerHTML = `<tr><th>Клуб</th><th>${player1Name}</th><th>${player2Name}</th><th>Причина</th></tr>`;
             tableBody.innerHTML = '';
             if (data.history && data.history.length > 0) {
                 gameHistoryContainer.classList.remove('hidden');
@@ -514,15 +512,23 @@
                     const row = document.createElement('tr');
                     let p1_score_html = round.p1_named;
                     let p2_score_html = round.p2_named;
-                    let winner_name = 'Ничья';
-                    if (round.p1_named > round.p2_named) {
-                        p1_score_html = `<b>${round.p1_named}</b>`;
-                        winner_name = player1Name;
-                    } else if (round.p2_named > round.p1_named) {
-                        p2_score_html = `<b>${round.p2_named}</b>`;
-                        winner_name = player2Name;
+                    
+                    let reasonText = '';
+                    switch(round.result_type) {
+                        case 'completed':
+                            reasonText = 'Завершен';
+                            break;
+                        case 'timeout':
+                            reasonText = `Время вышло (${round.player_nickname})`;
+                            break;
+                        case 'surrender':
+                             reasonText = `Сдался (${round.player_nickname})`;
+                             break;
+                        default:
+                            reasonText = '---';
                     }
-                    row.innerHTML = `<td>${round.club_name}</td><td>${p1_score_html}</td><td>${p2_score_html}</td><td>${winner_name}</td>`;
+                    
+                    row.innerHTML = `<td>${round.club_name}</td><td>${p1_score_html}</td><td>${p2_score_html}</td><td>${reasonText}</td>`;
                     tableBody.appendChild(row);
                 });
             } else {
