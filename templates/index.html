@@ -34,7 +34,7 @@
         .rounds-selector label { border: 1px solid #ccc; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
         .rounds-selector input { display: none; }
         .rounds-selector input:checked + label { background-color: #007bff; color: white; border-color: #007bff; }
-        /* Стили для игрового экрана */
+        /* Стили для игрового экрана и рейтинга */
         .timers-container { display: flex; justify-content: space-between; margin-bottom: 15px; }
         .timer-box { padding: 10px; border-radius: 8px; border: 1px solid #ddd; width: 48%; }
         .timer-box.active-turn { border-color: #007bff; box-shadow: 0 0 5px rgba(0,123,255,0.5); }
@@ -42,6 +42,9 @@
         .live-named-list { max-height: 150px; overflow-y: auto; border: 1px solid #eee; padding: 5px; margin-bottom: 10px; }
         .rating-positive { color: green; }
         .rating-negative { color: red; }
+        #leaderboard-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        #leaderboard-table th, #leaderboard-table td { padding: 8px; border: 1px solid #ddd; }
+        #leaderboard-table th { background-color: #f2f2f2; }
     </style>
 </head>
 <body>
@@ -137,6 +140,22 @@
         </form>
     </div>
 
+    <div id="leaderboard-screen" class="container hidden">
+        <h2>Рейтинг игроков</h2>
+        <table id="leaderboard-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Никнейм</th>
+                    <th>Рейтинг</th>
+                </tr>
+            </thead>
+            <tbody id="leaderboard-body">
+            </tbody>
+        </table>
+        <button id="back-to-lobby-from-leaderboard-btn" class="btn-secondary">Назад</button>
+    </div>
+
     <div id="game-over-screen" class="container hidden">
         <h2 id="game-over-title">🏆 Победил Игрок1!</h2>
         <p id="early-end-explanation" class="hidden">Игра завершена досрочно.</p>
@@ -156,9 +175,12 @@
             config: document.getElementById('config-screen'),
             game: document.getElementById('game-screen'),
             gameOver: document.getElementById('game-over-screen'),
+            leaderboard: document.getElementById('leaderboard-screen'),
         };
 
         // --- Элементы DOM ---
+        const loginFormContainer = document.getElementById('login-form-container');
+        const registerFormContainer = document.getElementById('register-form-container');
         const loginForm = document.getElementById('login-form'), loginNickname = document.getElementById('login-nickname'), loginPassword = document.getElementById('login-password'), loginStatus = document.getElementById('login-status');
         const registerForm = document.getElementById('register-form'), registerNickname = document.getElementById('register-nickname'), registerPassword = document.getElementById('register-password'), registerStatus = document.getElementById('register-status');
         const showRegisterFormBtn = document.getElementById('show-register-form'), showLoginFormBtn = document.getElementById('show-login-form');
@@ -176,6 +198,8 @@
         const myTimerBox = document.getElementById('my-timer-box'), myTimerNickname = document.getElementById('my-timer-nickname'), myTimerValue = document.getElementById('my-timer-value');
         const opponentTimerBox = document.getElementById('opponent-timer-box'), opponentTimerNickname = document.getElementById('opponent-timer-nickname'), opponentTimerValue = document.getElementById('opponent-timer-value');
         const gameOverTitle = document.getElementById('game-over-title'), earlyEndExplanation = document.getElementById('early-end-explanation'), finalScoreDisplay = document.getElementById('final-score-display'), ratingChangesDisplay = document.getElementById('rating-changes-display'), backToLobbyFromGameOverBtn = document.getElementById('back-to-lobby-from-game-over-btn');
+
+        const leaderboardBody = document.getElementById('leaderboard-body'), backToLobbyFromLeaderboardBtn = document.getElementById('back-to-lobby-from-leaderboard-btn');
 
         let currentUserNickname = null;
         let clientState = {};
@@ -203,7 +227,6 @@
             clientState = state;
             let myPlayerIndex = state.players[0].sid === socket.id ? 0 : 1;
             if (!state.players[myPlayerIndex] || state.players[myPlayerIndex].sid !== socket.id) {
-                // Если что-то пошло не так, ищем себя в объекте
                  for (const i in state.players) { if (state.players[i].sid === socket.id) { myPlayerIndex = parseInt(i, 10); break; } }
             }
 
@@ -220,6 +243,7 @@
             submitGuessBtn.disabled = !isMyTurn;
             surrenderBtn.disabled = !isMyTurn;
             guessInput.placeholder = isMyTurn ? 'Введите фамилию...' : 'Ход соперника...';
+            guessInput.disabled = !isMyTurn;
             gameStatus.textContent = isMyTurn ? 'Ваш ход...' : `Ожидаем ход игрока ${state.players[activePlayerIndex].nickname}...`;
 
             if(isMyTurn) guessInput.focus();
@@ -256,10 +280,12 @@
 
         createGameBtn.addEventListener('click', () => showScreen('config'));
         backToLobbyBtn.addEventListener('click', () => showScreen('lobby'));
-        leaderboardBtn.addEventListener('click', () => alert("Рейтинг в разработке"));
+        leaderboardBtn.addEventListener('click', () => socket.emit('get_leaderboard'));
         soloBtn.addEventListener('click', () => startGame('solo'));
         vsBotBtn.addEventListener('click', () => startGame('vs_bot'));
         backToLobbyFromGameOverBtn.addEventListener('click', () => showScreen('lobby'));
+        backToLobbyFromLeaderboardBtn.addEventListener('click', () => showScreen('lobby'));
+
 
         submitCreateGameBtn.addEventListener('click', () => {
             const settings = {
@@ -320,9 +346,24 @@
                 openGamesList.appendChild(gameItem);
             });
         });
+        
+        // ОБРАБОТЧИК ДАННЫХ РЕЙТИНГА
+        socket.on('leaderboard_data', (data) => {
+            leaderboardBody.innerHTML = '';
+            data.forEach((user, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `<td>${index + 1}</td><td>${user.nickname}</td><td>${user.rating}</td>`;
+                leaderboardBody.appendChild(row);
+            });
+            showScreen('leaderboard');
+        });
 
         socket.on('round_started', (state) => {
             showScreen('game');
+            updateGameUI(state);
+        });
+
+        socket.on('turn_updated', (state) => {
             updateGameUI(state);
         });
 
