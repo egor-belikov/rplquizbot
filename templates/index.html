@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -14,70 +15,47 @@
         .btn-secondary:hover:not(:disabled) { background-color: #5a6268; }
         .btn-danger { background-color: #dc3545; }
         .btn-danger:hover:not(:disabled) { background-color: #c82333; }
-        input[type="text"], .config-row select { width: 80%; padding: 10px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 10px; font-size: 1em; }
+        input[type="text"], input[type="password"] { width: 80%; padding: 10px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 10px; font-size: 1em; }
         h1, h2, h3 { margin-top: 0; }
-        #registration-status, #game-status, #pvp-status { min-height: 1.2em; margin-bottom: 10px; font-size: 0.9em; }
         .error-message { color: #dc3545; }
-        .config-row { display: flex; justify-content: center; align-items: center; margin-bottom: 15px; }
-        .config-row label { flex: 1; text-align: right; margin-right: 10px; }
-        .config-row .input-group { flex: 2; display: flex; align-items: center; }
-        .config-row .input-group input { text-align: center; width: 50px; margin: 0 5px; font-size: 1em; padding: 8px; border: 1px solid #ddd; border-radius: 8px; }
-        .config-row .input-group button { font-size: 1.2em; padding: 0; width: 30px; height: 30px; line-height: 30px; }
-        #open-games-list { max-height: 200px; overflow-y: auto; }
-        .open-games-container { margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px; }
-        .open-game-item { display: flex; justify-content: space-between; align-items: center; background-color: #f8f9fa; padding: 10px; border-radius: 8px; margin-bottom: 10px; text-align: left; }
-        .open-game-item .info { display: flex; flex-direction: column; gap: 2px; }
-        .open-game-item .creator { font-weight: bold; }
-        .open-game-item .details { font-size: 0.8em; color: #6c757d; }
-        .open-game-item .play-btn { font-size: 0.9em; padding: 8px 16px; }
-        .training-modes { margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px; }
-        .training-modes h3 { font-size: 1em; color: #6c757d; margin-bottom: 10px; }
-        #gameHeader, #summaryHeader { font-size: 1.1em; font-weight: bold; margin-bottom: 10px; }
-        #score-display, #summary-score-display, #final-score-display { font-size: 1.2em; font-weight: bold; margin-bottom: 10px; }
-        .players-list { max-height: 150px; overflow-y: auto; background-color: #f8f9fa; padding: 8px; border-radius: 8px; font-size: 0.9em; margin-top: 15px; }
-        .player-name { background-color: #e9ecef; padding: 5px; border-radius: 5px; margin-bottom: 5px; text-align: left; }
-        #leaderboard-table, #game-history-table { width: 100%; margin-top: 15px; border-collapse: collapse; }
-        #leaderboard-table th, #leaderboard-table td, #game-history-table th, #game-history-table td { padding: 8px 12px; border-bottom: 1px solid #eee; }
-        #leaderboard-table th, #game-history-table th { background-color: #f8f9fa; text-align: left;}
-        #surrender-btn { font-size: 0.8em; padding: 6px 12px; margin-top: 10px; }
-        .summary-layout, .timers-layout { margin-top: 15px; }
-        .summary-columns, .timers-columns { display: flex; justify-content: space-around; text-align: center; gap: 15px; }
-        .summary-column, .timer-box { flex: 1; min-width: 0; }
-        .summary-column h3 { font-size: 1em; margin-bottom: 5px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
-        .summary-players-list { max-height: 120px; overflow-y: auto; background-color: #f8f9fa; padding: 8px; border-radius: 8px; font-size: 0.9em; }
-        #summary-remaining-container h3 { margin-top: 15px; margin-bottom: 5px; }
-        #skip-pause-btn { font-size: 0.9em; padding: 8px 16px; margin-top: 10px; }
-        #early-end-explanation { font-size: 0.9em; color: #6c757d; margin-top: -10px; margin-bottom: 10px; }
-        #rating-changes-display { margin-top: 15px; font-size: 0.9em; }
-        .rating-change { margin-bottom: 5px; }
-        .rating-positive { color: #28a745; }
-        .rating-negative { color: #dc3545; }
-        .timer-value { font-size: 1.5em; font-weight: bold; transition: color 0.3s; }
-        .timer-box { border: 1px solid #eee; padding: 5px; border-radius: 8px; transition: border-color 0.3s; }
-        .timer-box .nickname { font-size: 0.8em; color: #6c757d; }
-        .timer-box:not(.active-turn) .timer-value { color: #adb5bd !important; }
-        .timer-box.active-turn { border: 2px solid #007bff; }
-        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-        .modal-content { background-color: white; padding: 30px; border-radius: 12px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .auth-toggle { font-size: 0.9em; color: #007bff; cursor: pointer; text-decoration: underline; margin-top: 15px; }
+        .lobby-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
     </style>
 </head>
 <body>
-    <div id="registration-screen" class="container hidden">
-        <h1>Добро пожаловать!</h1>
-        <p>Придумайте себе никнейм для игры.</p>
-        <form id="registration-form"><input type="text" id="nickname-input" placeholder="Ваш никнейм" autocomplete="off"><button type="submit">Войти</button></form>
-        <div id="registration-status"></div>
+    <div id="auth-screen" class="container">
+        <div id="login-form-container">
+            <h1>Вход</h1>
+            <form id="login-form">
+                <input type="text" id="login-nickname" placeholder="Никнейм" autocomplete="off">
+                <input type="password" id="login-password" placeholder="Пароль">
+                <button type="submit">Войти</button>
+            </form>
+            <div id="login-status" class="error-message"></div>
+            <p class="auth-toggle" id="show-register-form">Нет аккаунта? Зарегистрироваться</p>
+        </div>
+        <div id="register-form-container" class="hidden">
+            <h1>Регистрация</h1>
+            <form id="register-form">
+                <input type="text" id="register-nickname" placeholder="Придумайте никнейм" autocomplete="off">
+                <input type="password" id="register-password" placeholder="Придумайте пароль">
+                <button type="submit">Создать аккаунт</button>
+            </form>
+            <div id="register-status" class="error-message"></div>
+            <p class="auth-toggle" id="show-login-form">Уже есть аккаунт? Войти</p>
+        </div>
     </div>
+
     <div id="lobby-screen" class="container hidden">
-        <h1>Лобби</h1>
-        <p>Привет, <b id="welcome-nickname"></b>!</p>
+        <div class="lobby-header">
+            <p style="margin:0;">Привет, <b id="welcome-nickname"></b>!</p>
+            <button id="logout-btn" class="btn-secondary" style="font-size:0.8em; padding: 6px 12px;">Выйти</button>
+        </div>
         <button id="create-game-btn">Создать игру</button>
         <button id="leaderboard-btn">Рейтинг</button>
         <div class="open-games-container">
             <h3>Открытые игры:</h3>
-            <div id="open-games-list">
-                <p>Нет открытых игр. Создайте свою!</p>
-            </div>
+            <div id="open-games-list"><p>Нет открытых игр. Создайте свою!</p></div>
         </div>
         <div class="training-modes">
             <h3>Тренировка</h3>
@@ -85,106 +63,7 @@
             <button id="vs-bot-btn" class="btn-secondary">Играть с ботом</button>
         </div>
     </div>
-    <div id="config-screen" class="container hidden">
-        <h2>Настройки игры</h2>
-        <div class="config-row">
-            <label>Лига:</label>
-            <div class="input-group"><select id="config-league" disabled><option>РПЛ</option></select></div>
-        </div>
-        <div class="config-row">
-            <label>Время на раунд:</label>
-            <div class="input-group">
-                <button id="time-min-minus">-</button>
-                <input type="text" id="config-time-min" value="1">
-                <button id="time-min-plus">+</button>
-                <span>:</span>
-                <button id="time-sec-minus">-</button>
-                <input type="text" id="config-time-sec" value="30">
-                <button id="time-sec-plus">+</button>
-            </div>
-        </div>
-        <div class="config-row">
-            <label>Кол-во раундов:</label>
-            <div class="input-group">
-                <select id="config-rounds">
-                    <option value="3">3</option>
-                    <option value="5">5</option>
-                    <option value="8">8</option>
-                    <option value="16" selected>16</option>
-                </select>
-            </div>
-        </div>
-        <button id="submit-create-game-btn">Создать</button>
-        <button id="back-to-lobby-btn" class="btn-secondary">Назад</button>
-    </div>
-    <div id="leaderboard-screen" class="container hidden">
-        <h1>Таблица лидеров</h1>
-        <div style="max-height: 300px; overflow-y: auto;">
-            <table id="leaderboard-table">
-                <thead><tr><th>#</th><th>Игрок</th><th>Рейтинг</th></tr></thead>
-                <tbody id="leaderboard-body"></tbody>
-            </table>
-        </div>
-        <button id="back-to-menu-btn" class="btn-secondary">Назад</button>
-    </div>
-    <div id="game-screen" class="container hidden">
-        <div id="gameHeader"></div>
-        <div id="score-display"></div>
-        <div class="timers-layout">
-            <div class="timers-columns">
-                <div class="timer-box" id="my-timer-box">
-                    <div class="nickname" id="my-timer-nickname">Вы</div>
-                    <div class="timer-value" id="my-timer-value">01:30.00</div>
-                </div>
-                <div class="timer-box" id="opponent-timer-box">
-                    <div class="nickname" id="opponent-timer-nickname">Соперник</div>
-                    <div class="timer-value" id="opponent-timer-value">01:30.00</div>
-                </div>
-            </div>
-        </div>
-        <div id="game-status"></div>
-        <form id="guess-form"><input type="text" id="guess-input" placeholder="Введите фамилию..." autocomplete="off"><button type="submit" id="submit-guess-btn">Ответить</button></form>
-        <div class="players-list" id="live-named-list"></div>
-        <button id="surrender-btn" class="btn-secondary">Сдаться</button>
-    </div>
-    <div id="summary-screen" class="container hidden">
-        <h3 id="summaryHeader"></h3>
-        <div id="summary-score-display"></div>
-        <div class="summary-layout">
-            <div class="summary-columns">
-                <div class="summary-column" id="summary-human-column"><h3 id="summary-human-name-header"></h3><div class="summary-players-list" id="summary-human-named-list"></div></div>
-                <div class="summary-column" id="summary-bot-column"><h3 id="summary-bot-name-header"></h3><div class="summary-players-list" id="summary-bot-named-list"></div></div>
-            </div>
-            <div id="summary-remaining-container">
-                <h3>Осталось назвать:</h3>
-                <div class="summary-players-list" id="summary-remaining-list"></div>
-            </div>
-        </div>
-        <p>Следующий раунд через <span id="summary-countdown">10</span>...</p>
-        <button id="skip-pause-btn" class="btn-secondary">Пропустить</button>
-    </div>
-    <div id="game-over-screen" class="container hidden">
-        <h1 id="game-over-title">Игра окончена!</h1>
-        <p id="early-end-explanation" class="hidden"></p>
-        <h2 id="final-score-display"></h2>
-        <div id="rating-changes-display" class="hidden"></div>
-        <h3>История раундов:</h3>
-        <div style="max-height: 300px; overflow-y: auto;">
-            <table id="game-history-table">
-                <thead></thead>
-                <tbody></tbody>
-            </table>
-        </div>
-        <button id="back-to-menu-from-game-over" class="btn-secondary">В главное меню</button>
-    </div>
-    <div id="disconnection-modal" class="modal-overlay hidden">
-        <div class="modal-content">
-            <h2>Соперник покинул игру</h2>
-            <p>Вы можете вернуться в лобби.</p>
-            <button id="back-to-lobby-from-disconnect" class="btn-secondary">Вернуться в лобби</button>
-        </div>
-    </div>
-
+    
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         const socket = io();
@@ -200,7 +79,6 @@
         const opponentTimerBox = document.getElementById('opponent-timer-box'), opponentTimerNickname = document.getElementById('opponent-timer-nickname'), opponentTimerValue = document.getElementById('opponent-timer-value');
         const summaryHeader = document.getElementById('summaryHeader'), summaryScoreDisplay = document.getElementById('summary-score-display'), summaryHumanColumn = document.getElementById('summary-human-column'), summaryBotColumn = document.getElementById('summary-bot-column'), summaryHumanNameHeader = document.getElementById('summary-human-name-header'), summaryBotNameHeader = document.getElementById('summary-bot-name-header'), summaryHumanNamedList = document.getElementById('summary-human-named-list'), summaryBotNamedList = document.getElementById('summary-bot-named-list'), summaryRemainingList = document.getElementById('summary-remaining-list'), summaryCountdown = document.getElementById('summary-countdown'), skipPauseBtn = document.getElementById('skip-pause-btn');
         const gameOverTitle = document.getElementById('game-over-title'), earlyEndExplanation = document.getElementById('early-end-explanation'), finalScoreDisplay = document.getElementById('final-score-display'), ratingChangesDisplay = document.getElementById('rating-changes-display'), gameHistoryTable = document.getElementById('game-history-table'), backToMenuFromGameOverBtn = document.getElementById('back-to-menu-from-game-over');
-        const disconnectionModal = document.getElementById('disconnection-modal'), backToLobbyFromDisconnectBtn = document.getElementById('back-to-lobby-from-disconnect');
         
         let isMyTurn = false;
 
@@ -267,7 +145,68 @@
         }
         
         function startGame(mode) { if (!currentUserNickname) return; socket.emit('start_game', { mode: mode, nickname: currentUserNickname }); }
+                const loginForm = document.getElementById('login-form'), loginNickname = document.getElementById('login-nickname'), loginPassword = document.getElementById('login-password'), loginStatus = document.getElementById('login-status');
+        const registerForm = document.getElementById('register-form'), registerNickname = document.getElementById('register-nickname'), registerPassword = document.getElementById('register-password'), registerStatus = document.getElementById('register-status');
+        const showRegisterFormBtn = document.getElementById('show-register-form'), showLoginFormBtn = document.getElementById('show-login-form');
+        const logoutBtn = document.getElementById('logout-btn');
+
+        showRegisterFormBtn.addEventListener('click', () => {
+            document.getElementById('login-form-container').classList.add('hidden');
+            document.getElementById('register-form-container').classList.remove('hidden');
+        });
+        showLoginFormBtn.addEventListener('click', () => {
+            document.getElementById('register-form-container').classList.add('hidden');
+            document.getElementById('login-form-container').classList.remove('hidden');
+        });
+
+        loginForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const nickname = loginNickname.value.trim();
+            const password = loginPassword.value;
+            loginStatus.textContent = "Проверка...";
+            socket.emit('login_user', { nickname, password });
+        });
+
+        registerForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const nickname = registerNickname.value.trim();
+            const password = registerPassword.value;
+            registerStatus.textContent = "Создание аккаунта...";
+            socket.emit('register_user', { nickname, password });
+        });
+
+        logoutBtn.addEventListener('click', () => {
+            currentUserNickname = null;
+            localStorage.removeItem('rpl_quiz_nickname');
+            showScreen('auth');
+            // Очищаем поля форм для безопасности
+            loginNickname.value = ''; loginPassword.value = '';
+            registerNickname.value = ''; registerPassword.value = '';
+            loginStatus.textContent = ''; registerStatus.textContent = '';
+        });
+
+        socket.on('auth_status', (data) => {
+            const statusDiv = document.getElementById(`${data.form || 'login'}-status`);
+            if (data.success) {
+                currentUserNickname = data.nickname;
+                localStorage.setItem('rpl_quiz_nickname', currentUserNickname);
+                welcomeNickname.textContent = currentUserNickname;
+                showScreen('lobby');
+            } else {
+                if (statusDiv) statusDiv.textContent = data.message;
+            }
+        });
         
+        window.addEventListener('load', () => {
+            const savedNickname = localStorage.getItem('rpl_quiz_nickname');
+            if (savedNickname) {
+                currentUserNickname = savedNickname;
+                welcomeNickname.textContent = currentUserNickname;
+                showScreen('lobby');
+            } else {
+                showScreen('auth');
+            }
+        });
         window.addEventListener('load', () => {
             const savedNickname = localStorage.getItem('rpl_quiz_nickname');
             socket.emit('check_status', { nickname: savedNickname });

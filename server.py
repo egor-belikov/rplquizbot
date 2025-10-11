@@ -1,4 +1,4 @@
-# server.py (Финальная версия - Лобби с комнатами)
+# server.py (Финальная версия - Логин и Пароль)
 
 import os, csv, uuid, random, time, re
 from flask import Flask, render_template, request
@@ -7,6 +7,7 @@ from flask_sqlalchemy import SQLAlchemy
 from fuzzywuzzy import fuzz
 from glicko2 import Player
 from sqlalchemy.pool import NullPool
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # Константы
 PAUSE_BETWEEN_ROUNDS = 10
@@ -30,6 +31,7 @@ socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nickname = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(128), nullable=True) # Новое поле для пароля
     rating = db.Column(db.Float, default=1500)
     rd = db.Column(db.Float, default=350)
     vol = db.Column(db.Float, default=0.06)
@@ -37,10 +39,12 @@ class User(db.Model):
 with app.app_context():
     db.create_all()
 
-def get_or_create_user(nickname):
+# Функции для работы с БД
+def get_or_create_user(nickname, password=None):
     user = User.query.filter_by(nickname=nickname).first()
-    if not user:
-        user = User(nickname=nickname)
+    if not user and password:
+        hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+        user = User(nickname=nickname, password_hash=hashed_password)
         db.session.add(user)
         db.session.commit()
         print(f"[DB] Создан новый пользователь: {nickname}")
@@ -284,15 +288,59 @@ def handle_get_leaderboard():
 @socketio.on('register_user')
 def handle_register_user(data):
     nickname = data.get('nickname')
-    if not nickname: emit('registration_status', {'success': False, 'message': 'Никнейм не может быть пустым.'}); return
-    if len(nickname) < 3 or len(nickname) > 15: emit('registration_status', {'success': False, 'message': 'Длина от 3 до 15 символов.'}); return
-    if not re.match(r'^[a-zA-Z0-9а-яА-Я_-]+$', nickname): emit('registration_status', {'success': False, 'message': 'Только буквы, цифры, _ и -.'}); return
+    password = data.get('password')
+    if not nickname or not password:
+        emit('auth_status', {'success': False, 'message': 'Никнейм и пароль не могут быть пустыми.'})
+        return
+    if len(nickname) < 3 or len(nickname) > 15:
+        emit('auth_status', {'success': False, 'message': 'Длина никнейма от 3 до 15 символов.'})
+        return
+    if not re.match(r'^[a-zA-Z0-9а-яА-Я_-]+$', nickname):
+        emit('auth_status', {'success': False, 'message': 'Только буквы, цифры, _ и -.'})
+        return
+    if len(password) < 3:
+        emit('auth_status', {'success': False, 'message': 'Пароль должен быть длиннее 2 символов.'})
+        return
     with app.app_context():
         user_exists = User.query.filter_by(nickname=nickname).first()
-        if user_exists: emit('registration_status', {'success': False, 'message': 'Этот никнейм уже занят.'})
+        if user_exists:
+            emit('auth_status', {'success': False, 'message': 'Этот никнейм уже занят.'})
         else:
-            get_or_create_user(nickname)
-            emit('registration_status', {'success': True, 'nickname': nickname})
+            get_or_create_user(nickname, password)
+            print(f"[AUTH] Зарегистрирован новый игрок: {nickname}")
+            emit('auth_status', {'success': True, 'nickname': nickname})
+
+@socketio.on('login_user')
+def handle_login_user(data):
+    nickname = data.get('nickname')
+    password = data.get('password')
+    if not nickname or not password:
+        emit('auth_status', {'success': False, 'message': 'Введите никнейм и пароль.'})
+        return
+    
+    with app.app_context():
+        user = User.query.filter_by(nickname=nickname).first()
+        if not user:
+            emit('auth_status', {'success': False, 'message': 'Игрок не найден.'})
+            return
+
+        # Логика миграции для старых аккаунтов
+        if not user.password_hash:
+            if password == '123':
+                print(f"[AUTH] Миграция старого аккаунта: {nickname}")
+                user.password_hash = generate_password_hash('123', method='pbkdf2:sha256')
+                db.session.commit()
+                emit('auth_status', {'success': True, 'nickname': nickname})
+            else:
+                print(f"[AUTH] Неверный пароль (123) для старого аккаунта: {nickname}")
+                emit('auth_status', {'success': False, 'message': 'Неверный пароль.'})
+        # Стандартная проверка пароля
+        elif check_password_hash(user.password_hash, password):
+            print(f"[AUTH] Игрок {nickname} успешно вошел в систему.")
+            emit('auth_status', {'success': True, 'nickname': nickname})
+        else:
+            print(f"[AUTH] Неудачная попытка входа для игрока: {nickname}")
+            emit('auth_status', {'success': False, 'message': 'Неверный пароль.'})
 
 @socketio.on('start_game')
 def handle_start_game(data):
