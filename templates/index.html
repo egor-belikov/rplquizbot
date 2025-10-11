@@ -19,7 +19,7 @@
         .error-message { color: #dc3545; }
         .auth-toggle { font-size: 0.9em; color: #007bff; cursor: pointer; text-decoration: underline; margin-top: 15px; }
         .lobby-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .open-games-container, .training-modes { margin-top: 20px; }
+        .open-games-container { margin-top: 20px; }
         .open-game-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border: 1px solid #eee; border-radius: 8px; margin-bottom: 8px; background-color: #fafafa; }
         .open-game-item .info { text-align: left; flex-grow: 1; }
         .open-game-item .info .creator { font-weight: bold; }
@@ -86,12 +86,7 @@
             <h3>Открытые игры:</h3>
             <div id="open-games-list"><p>Нет открытых игр. Создайте свою!</p></div>
         </div>
-        <div class="training-modes">
-            <h3>Тренировка</h3>
-            <button id="solo-btn" class="btn-secondary">Играть одному</button>
-            <button id="vs-bot-btn" class="btn-secondary">Играть с ботом</button>
         </div>
-    </div>
     
     <div id="config-screen" class="container hidden">
         <h2>Настройки игры</h2>
@@ -216,7 +211,6 @@
         const welcomeNickname = document.getElementById('welcome-nickname'), logoutBtn = document.getElementById('logout-btn');
         const createGameBtn = document.getElementById('create-game-btn'), leaderboardBtn = document.getElementById('leaderboard-btn');
         const openGamesList = document.getElementById('open-games-list');
-        const soloBtn = document.getElementById('solo-btn'), vsBotBtn = document.getElementById('vs-bot-btn');
         
         const configTimeMin = document.getElementById('config-time-min'), configTimeSec = document.getElementById('config-time-sec');
         const backToLobbyBtn = document.getElementById('back-to-lobby-btn'), submitCreateGameBtn = document.getElementById('submit-create-game-btn');
@@ -240,11 +234,6 @@
         function showScreen(screenName) {
             Object.values(screens).forEach(screen => screen && screen.classList.add('hidden'));
             if (screens[screenName]) screens[screenName].classList.remove('hidden');
-        }
-
-        function startGame(mode) {
-            if (!currentUserNickname) return alert("Ошибка: не удалось определить пользователя.");
-            socket.emit('start_game', { mode: mode, nickname: currentUserNickname });
         }
 
         function formatTime(seconds) {
@@ -325,8 +314,6 @@
             socket.emit('get_leaderboard');
             showScreen('leaderboard');
         });
-        soloBtn.addEventListener('click', () => startGame('solo'));
-        vsBotBtn.addEventListener('click', () => startGame('vs_bot'));
         backToLobbyFromGameOverBtn.addEventListener('click', () => showScreen('lobby'));
         backToLobbyFromLeaderboardBtn.addEventListener('click', () => showScreen('lobby'));
 
