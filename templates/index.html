@@ -73,17 +73,14 @@
         const socket = io();
         
         // --- DOM Элементы ---
-        const authScreen = document.getElementById('auth-screen');
-        const lobbyScreen = document.getElementById('lobby-screen');
         
         // Экраны
         const screens = {
             auth: document.getElementById('auth-screen'),
             lobby: document.getElementById('lobby-screen'),
-            // Добавьте сюда другие экраны по мере необходимости
-            config: document.getElementById('config-screen'),
-            leaderboard: document.getElementById('leaderboard-screen'),
-            game: document.getElementById('game-screen'),
+            // Добавьте сюда другие экраны, когда они появятся в HTML
+            // leaderboard: document.getElementById('leaderboard-screen'),
+            // game: document.getElementById('game-screen'),
         };
 
         // Формы аутентификации
@@ -121,7 +118,16 @@
             }
         }
 
-        // --- Обработчики событий ---
+        function startGame(mode) {
+            if (!currentUserNickname) {
+                alert("Ошибка: не удалось определить пользователя. Пожалуйста, войдите заново.");
+                return;
+            }
+            socket.emit('start_game', { mode: mode, nickname: currentUserNickname });
+        }
+
+
+        // --- ОБРАБОТЧИКИ СОБЫТИЙ DOM ---
 
         // Переключение между формами входа и регистрации
         showRegisterFormBtn.addEventListener('click', () => {
@@ -166,6 +172,28 @@
             showScreen('auth');
         });
         
+        // --- ВОЗВРАЩЕННЫЕ ОБРАБОТЧИКИ ДЛЯ КНОПОК ЛОББИ ---
+        soloBtn.addEventListener('click', () => startGame('solo'));
+        vsBotBtn.addEventListener('click', () => startGame('vs_bot'));
+        
+        leaderboardBtn.addEventListener('click', () => {
+             socket.emit('get_leaderboard');
+             // Вам нужно будет добавить обработчик socket.on('leaderboard_data', ...)
+             // и HTML для экрана рейтинга, чтобы это заработало.
+             alert("Запрос рейтинга отправлен. Отображение пока не реализовано.");
+        });
+
+        createGameBtn.addEventListener('click', () => {
+            if (!currentUserNickname) return;
+            // Создаем игру с настройками по умолчанию
+            const defaultSettings = {
+                time_bank: 90,
+                num_rounds: 16
+            };
+            socket.emit('create_game', { nickname: currentUserNickname, settings: defaultSettings });
+            alert("Запрос на создание игры отправлен. Ваша игра появится в списке 'Открытые игры'.");
+        });
+        
         // Присоединение к игре из лобби
         openGamesList.addEventListener('click', (e) => {
             if (e.target.classList.contains('play-btn')) {
@@ -178,7 +206,7 @@
             }
         });
 
-        // --- Обработчики Socket.IO ---
+        // --- ОБРАБОТЧИКИ СОБЫТИЙ SOCKET.IO ---
 
         // Ответ от сервера на попытку входа/регистрации
         socket.on('auth_status', (data) => {
@@ -217,15 +245,18 @@
                 openGamesList.appendChild(gameItem);
             });
         });
+        
+        // Тут будут другие обработчики от сервера, например, 'round_started', 'game_over' и т.д.
+        // socket.on('round_started', (data) => { ... });
 
-        // --- Инициализация при загрузке страницы ---
+        // --- ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ СТРАНИЦЫ ---
         window.addEventListener('load', () => {
             const savedNickname = localStorage.getItem('rpl_quiz_nickname');
             if (savedNickname) {
                 currentUserNickname = savedNickname;
                 welcomeNickname.textContent = currentUserNickname;
                 showScreen('lobby');
-                // Запрос на обновление лобби будет отправлен автоматически при 'connect'
+                // Запрос на обновление лобби будет отправлен автоматически при событии 'connect' от сокета
             } else {
                 showScreen('auth');
             }
