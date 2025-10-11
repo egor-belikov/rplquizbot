@@ -262,7 +262,7 @@
             submitGuessBtn.disabled = !isMyTurn;
             surrenderBtn.disabled = !isMyTurn;
             guessInput.placeholder = isMyTurn ? 'Введите фамилию...' : 'Ход соперника...';
-            guessInput.disabled = !isMyTurn;
+            guessInput.disabled = false; // --- ИЗМЕНЕНИЕ: Поле ввода всегда активно
             gameStatus.textContent = isMyTurn ? 'Ваш ход...' : `Ожидаем ход игрока ${state.players[activePlayerIndex].nickname}...`;
 
             if(isMyTurn) guessInput.focus();
