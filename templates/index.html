@@ -191,7 +191,8 @@
                 const pDiv = document.createElement('div'); pDiv.className = 'player-name';
                 const author = (state.mode !== 'solo' && state.players[1]) ? (player.by === 0 ? state.players[0].nickname : state.players[1].nickname) : '';
                 pDiv.textContent = author ? `${player.name} (${author})` : player.name;
-                liveNamedList.appendChild(pDiv);
+                // --- ИЗМЕНЕНИЕ: Добавляем в начало, а не в конец ---
+                liveNamedList.prepend(pDiv);
             });
             clearInterval(timerInterval);
             let timeBanks = {...state.timeBanks};
