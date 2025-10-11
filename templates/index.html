@@ -187,6 +187,12 @@
         <button id="back-to-lobby-from-game-over-btn" style="margin-top: 15px;">Вернуться в лобби</button>
     </div>
 
+    <div id="disconnection-modal" class="container hidden" style="position: fixed; z-index: 100; background-color: rgba(255, 255, 255, 0.95);">
+        <h2>Соединение потеряно</h2>
+        <p id="disconnection-message">Ваш соперник отключился. Игра была отменена, рейтинг не изменен.</p>
+        <button id="back-to-lobby-from-disconnect-btn">Вернуться в лобби</button>
+    </div>
+
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         const socket = io();
@@ -199,6 +205,7 @@
             summary: document.getElementById('summary-screen'),
             gameOver: document.getElementById('game-over-screen'),
             leaderboard: document.getElementById('leaderboard-screen'),
+            disconnection: document.getElementById('disconnection-modal'),
         };
 
         // --- Элементы DOM ---
@@ -224,6 +231,7 @@
         const leaderboardBody = document.getElementById('leaderboard-body'), backToLobbyFromLeaderboardBtn = document.getElementById('back-to-lobby-from-leaderboard-btn');
         const gameOverTitle = document.getElementById('game-over-title'), earlyEndExplanation = document.getElementById('early-end-explanation'), finalScoreDisplay = document.getElementById('final-score-display'), ratingChangesDisplay = document.getElementById('rating-changes-display'), backToLobbyFromGameOverBtn = document.getElementById('back-to-lobby-from-game-over-btn');
         const gameHistoryContainer = document.getElementById('game-history-container'), gameHistoryTable = document.getElementById('game-history-table');
+        const disconnectionModal = document.getElementById('disconnection-modal'), backToLobbyFromDisconnectBtn = document.getElementById('back-to-lobby-from-disconnect-btn');
 
         let currentUserNickname = null;
         let clientState = {};
@@ -316,6 +324,7 @@
         });
         backToLobbyFromGameOverBtn.addEventListener('click', () => showScreen('lobby'));
         backToLobbyFromLeaderboardBtn.addEventListener('click', () => showScreen('lobby'));
+        backToLobbyFromDisconnectBtn.addEventListener('click', () => showScreen('lobby'));
 
         submitCreateGameBtn.addEventListener('click', () => {
             const timeBank = parseInt(configTimeMin.value) * 60 + parseInt(configTimeSec.value);
@@ -502,17 +511,10 @@
                     
                     let reasonText = '';
                     switch(round.result_type) {
-                        case 'completed':
-                            reasonText = 'Завершен';
-                            break;
-                        case 'timeout':
-                            reasonText = `Время вышло (${round.player_nickname})`;
-                            break;
-                        case 'surrender':
-                             reasonText = `Сдался (${round.player_nickname})`;
-                             break;
-                        default:
-                            reasonText = '---';
+                        case 'completed': reasonText = 'Завершен'; break;
+                        case 'timeout': reasonText = `Время вышло (${round.player_nickname})`; break;
+                        case 'surrender': reasonText = `Сдался (${round.player_nickname})`; break;
+                        default: reasonText = '---';
                     }
                     
                     row.innerHTML = `<td>${round.club_name}</td><td>${p1_score_html}</td><td>${p2_score_html}</td><td>${reasonText}</td>`;
@@ -521,6 +523,13 @@
             } else {
                 gameHistoryContainer.classList.add('hidden');
             }
+        });
+
+        socket.on('opponent_disconnected', (data) => {
+            clearInterval(timerInterval);
+            clearInterval(summaryInterval);
+            document.getElementById('disconnection-message').textContent = data.message;
+            showScreen('disconnection');
         });
 
         // Инициализация

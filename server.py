@@ -86,7 +86,7 @@ def load_player_data(filename):
                     if alias: aliases.add(alias)
             
             player_object = { 
-                'full_name': player_name_full, # <-- ДОБАВЛЕНО: Полное имя
+                'full_name': player_name_full,
                 'primary_name': primary_surname, 
                 'valid_normalized_names': {a.strip().lower().replace('ё', 'е') for a in aliases} 
             }
@@ -112,7 +112,7 @@ class GameState:
 
         self.all_clubs_data = all_clubs_data
         self.current_round, self.current_player_index, self.current_club_name = -1, 0, None
-        self.players_for_comparison, self.named_players_full_names, self.named_players = [], set(), [] # <-- ИЗМЕНЕНО
+        self.players_for_comparison, self.named_players_full_names, self.named_players = [], set(), []
         self.round_history, self.end_reason = [], 'normal'
         self.last_successful_guesser_index, self.previous_round_loser_index = None, None
         
@@ -143,18 +143,13 @@ class GameState:
     def process_guess(self, guess):
         guess_norm = guess.strip().lower().replace('ё', 'е')
         
-        # Прямое совпадение
         for player_data in self.players_for_comparison:
-            # Ищем игрока с такой фамилией, который еще НЕ был назван
             if guess_norm in player_data['valid_normalized_names'] and player_data['full_name'] not in self.named_players_full_names:
                 return {'result': 'correct', 'player_data': player_data}
 
-        # Если прямого совпадения нет (или все однофамильцы уже названы), ищем опечатку
         best_match_player, max_ratio = None, 0
         for player_data in self.players_for_comparison:
-            # Ищем только среди тех, кто еще НЕ был назван
-            if player_data['full_name'] in self.named_players_full_names:
-                continue
+            if player_data['full_name'] in self.named_players_full_names: continue
             primary_norm = player_data['primary_name'].lower().replace('ё', 'е')
             ratio = fuzz.ratio(guess_norm, primary_norm)
             if ratio > max_ratio:
@@ -163,18 +158,14 @@ class GameState:
         if max_ratio >= TYPO_THRESHOLD:
             return {'result': 'correct_typo', 'player_data': best_match_player}
         
-        # Если ничего не подошло, проверяем, не был ли игрок с такой фамилией уже назван
         for player_data in self.players_for_comparison:
              if guess_norm in player_data['valid_normalized_names']:
-                 # Если мы здесь, значит все игроки с этой фамилией уже в списке названных
                  return {'result': 'already_named'}
 
         return {'result': 'not_found'}
 
     def add_named_player(self, player_data, player_index):
-        # Добавляем полное имя в список
         self.named_players.append({'full_name': player_data['full_name'], 'name': player_data['primary_name'], 'by': player_index})
-        # В сет для проверки уникальности добавляем тоже полное имя
         self.named_players_full_names.add(player_data['full_name'])
         self.last_successful_guesser_index = player_index
         if self.mode != 'solo': self.switch_player()
@@ -196,17 +187,12 @@ class GameState:
 active_games, open_games = {}, {}
 def get_game_state_for_client(game, room_id):
     return { 
-        'roomId': room_id, 
-        'mode': game.mode, 
+        'roomId': room_id, 'mode': game.mode, 
         'players': {i: {'nickname': p['nickname'], 'sid': p['sid']} for i, p in game.players.items()}, 
-        'scores': game.scores, 
-        'round': game.current_round + 1, 
-        'totalRounds': game.num_rounds, 
-        'clubName': game.current_club_name, 
-        'namedPlayers': game.named_players, 
-        'fullPlayerList': [p['full_name'] for p in game.players_for_comparison], # <-- Отправляем полные имена
-        'currentPlayerIndex': game.current_player_index, 
-        'timeBanks': game.time_banks 
+        'scores': game.scores, 'round': game.current_round + 1, 'totalRounds': game.num_rounds, 
+        'clubName': game.current_club_name, 'namedPlayers': game.named_players, 
+        'fullPlayerList': [p['full_name'] for p in game.players_for_comparison], 
+        'currentPlayerIndex': game.current_player_index, 'timeBanks': game.time_banks 
     }
 
 def start_next_human_turn(room_id):
@@ -261,7 +247,6 @@ def start_game_loop(room_id):
                 update_ratings(winner_user_obj=p2_obj, loser_user_obj=p1_obj)
 
             with app.app_context():
-                # Перечитываем данные из БД, чтобы получить актуальный рейтинг
                 updated_p1 = User.query.get(p1_obj.id)
                 updated_p2 = User.query.get(p2_obj.id)
                 p1_new_rating = int(updated_p1.rating)
@@ -287,9 +272,7 @@ def show_round_summary_and_schedule_next(room_id):
     p1_named_count = len([p for p in game.named_players if p['by'] == 0])
     p2_named_count = len([p for p in game.named_players if p.get('by') == 1])
     round_result = { 
-        'club_name': game.current_club_name, 
-        'p1_named': p1_named_count, 
-        'p2_named': p2_named_count, 
+        'club_name': game.current_club_name, 'p1_named': p1_named_count, 'p2_named': p2_named_count, 
         'result_type': game_session.get('last_round_end_reason', 'completed'),
         'player_nickname': game_session.get('last_round_end_player_nickname', None)
     }
@@ -300,12 +283,9 @@ def show_round_summary_and_schedule_next(room_id):
     game_session['last_round_end_player_nickname'] = None
 
     summary_data = { 
-        'clubName': game.current_club_name, 
-        'fullPlayerList': [p['full_name'] for p in game.players_for_comparison], # <-- Отправляем полные имена
-        'namedPlayers': game.named_players, 
-        'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 
-        'scores': game.scores, 
-        'mode': game.mode 
+        'clubName': game.current_club_name, 'fullPlayerList': [p['full_name'] for p in game.players_for_comparison],
+        'namedPlayers': game.named_players, 'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 
+        'scores': game.scores, 'mode': game.mode 
     }
     socketio.emit('round_summary', summary_data, room=room_id)
     pause_id = f"pause_{room_id}_{game.current_round}"
@@ -326,10 +306,8 @@ def get_lobby_data_list():
             creator_user = User.query.filter_by(nickname=game_info['creator']['nickname']).first()
             if creator_user:
                 lobby_list.append({
-                    'settings': game_info['settings'],
-                    'creator_nickname': creator_user.nickname,
-                    'creator_rating': int(creator_user.rating),
-                    'creator_sid': game_info['creator']['sid']
+                    'settings': game_info['settings'], 'creator_nickname': creator_user.nickname,
+                    'creator_rating': int(creator_user.rating), 'creator_sid': game_info['creator']['sid']
                 })
     return lobby_list
 
@@ -340,16 +318,43 @@ def handle_connect():
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    print(f"[CONNECTION] Клиент отключился: {request.sid}")
-    room_to_delete = None
+    sid = request.sid
+    print(f"[CONNECTION] Клиент отключился: {sid}")
+    
+    room_to_delete_from_lobby = None
     for room_id, game_info in open_games.items():
-        if game_info['creator']['sid'] == request.sid:
-            room_to_delete = room_id
+        if game_info['creator']['sid'] == sid:
+            room_to_delete_from_lobby = room_id
             break
-    if room_to_delete:
-        del open_games[room_to_delete]
-        print(f"[LOBBY] Создатель комнаты {room_to_delete} отключился. Комната удалена.")
+    if room_to_delete_from_lobby:
+        del open_games[room_to_delete_from_lobby]
+        print(f"[LOBBY] Создатель комнаты {room_to_delete_from_lobby} отключился. Комната удалена.")
         socketio.emit('update_lobby', get_lobby_data_list())
+
+    game_to_terminate_id = None
+    opponent_sid = None
+    for room_id, game_session in list(active_games.items()):
+        game = game_session['game']
+        disconnected_player_index = -1
+        for i, player_info in game.players.items():
+            if player_info['sid'] == sid:
+                disconnected_player_index = i
+                break
+        
+        if disconnected_player_index != -1:
+            game_to_terminate_id = room_id
+            if len(game.players) > 1:
+                opponent_index = 1 - disconnected_player_index
+                if game.players[opponent_index]['sid'] != 'BOT':
+                   opponent_sid = game.players[opponent_index]['sid']
+            break
+
+    if game_to_terminate_id:
+        print(f"[GAME] Игрок {sid} отключился от активной игры {game_to_terminate_id}. Игра прекращена.")
+        if opponent_sid:
+            emit('opponent_disconnected', {'message': 'Соперник отключился. Игра отменена без изменения рейтинга.'}, room=opponent_sid)
+            print(f"[GAME] Отправлено уведомление об отключении сопернику {opponent_sid}.")
+        del active_games[game_to_terminate_id]
 
 
 @socketio.on('request_skip_pause')
@@ -359,10 +364,7 @@ def handle_request_skip_pause(data):
     if not game_session: return
     game = game_session['game']
     print(f"[GAME] Комната {room_id}: получен запрос на пропуск паузы.")
-    if game.mode in ['solo', 'vs_bot']:
-        game_session['pause_id'] = None
-        start_game_loop(room_id)
-    elif game.mode == 'pvp':
+    if game.mode == 'pvp':
         player_index = next((i for i, p in game.players.items() if p['sid'] == request.sid), -1)
         if player_index != -1:
             game_session['skip_votes'].add(player_index)
@@ -380,23 +382,12 @@ def handle_get_leaderboard():
 
 @socketio.on('register_user')
 def handle_register_user(data):
-    nickname = data.get('nickname')
-    password = data.get('password')
-    if not nickname or not password:
-        emit('auth_status', {'success': False, 'message': 'Никнейм и пароль не могут быть пустыми.', 'form': 'register'})
-        return
-    if len(nickname) < 3 or len(nickname) > 15:
-        emit('auth_status', {'success': False, 'message': 'Длина никнейма от 3 до 15 символов.', 'form': 'register'})
-        return
-    if not re.match(r'^[a-zA-Z0-9а-яА-Я_-]+$', nickname):
-        emit('auth_status', {'success': False, 'message': 'Только буквы, цифры, _ и -.', 'form': 'register'})
-        return
-    if len(password) < 3:
-        emit('auth_status', {'success': False, 'message': 'Пароль должен быть длиннее 2 символов.', 'form': 'register'})
+    nickname, password = data.get('nickname'), data.get('password')
+    if not nickname or not password or len(nickname) < 3 or len(nickname) > 15 or not re.match(r'^[a-zA-Z0-9а-яА-Я_-]+$', nickname) or len(password) < 3:
+        emit('auth_status', {'success': False, 'message': 'Неверные данные для регистрации.', 'form': 'register'})
         return
     with app.app_context():
-        user_exists = User.query.filter_by(nickname=nickname).first()
-        if user_exists:
+        if User.query.filter_by(nickname=nickname).first():
             emit('auth_status', {'success': False, 'message': 'Этот никнейм уже занят.', 'form': 'register'})
         else:
             get_or_create_user(nickname, password)
@@ -405,78 +396,54 @@ def handle_register_user(data):
 
 @socketio.on('login_user')
 def handle_login_user(data):
-    nickname = data.get('nickname')
-    password = data.get('password')
+    nickname, password = data.get('nickname'), data.get('password')
     if not nickname or not password:
         emit('auth_status', {'success': False, 'message': 'Введите никнейм и пароль.', 'form': 'login'})
         return
     
     with app.app_context():
         user = User.query.filter_by(nickname=nickname).first()
-        if not user:
-            emit('auth_status', {'success': False, 'message': 'Игрок не найден.', 'form': 'login'})
-            return
-        if not user.password_hash:
-             emit('auth_status', {'success': False, 'message': 'У пользователя нет пароля. Обратитесь к администратору.', 'form': 'login'})
-             return
-        if check_password_hash(user.password_hash, password):
+        if not user or not user.password_hash or not check_password_hash(user.password_hash, password):
+            emit('auth_status', {'success': False, 'message': 'Неверный никнейм или пароль.', 'form': 'login'})
+        else:
             print(f"[AUTH] Игрок {nickname} успешно вошел в систему.")
             emit('auth_status', {'success': True, 'nickname': nickname, 'form': 'login'})
-        else:
-            print(f"[AUTH] Неудачная попытка входа для игрока: {nickname}")
-            emit('auth_status', {'success': False, 'message': 'Неверный пароль.', 'form': 'login'})
 
 @socketio.on('create_game')
 def handle_create_game(data):
     sid, nickname, settings = request.sid, data.get('nickname'), data.get('settings')
-    for room_id, game_info in open_games.items():
-        if game_info['creator']['sid'] == sid:
-            print(f"[LOBBY] Игрок {nickname} уже создал игру. Отклонено.")
-            return
+    if any(g['creator']['sid'] == sid for g in open_games.values()):
+        print(f"[LOBBY] Игрок {nickname} уже создал игру. Отклонено.")
+        return
             
     room_id = str(uuid.uuid4())
     join_room(room_id)
-    open_games[room_id] = {
-        'creator': {'sid': sid, 'nickname': nickname},
-        'settings': settings
-    }
-    print(f"[LOBBY] Игрок {nickname} создал комнату {room_id} и присоединился к ней. Настройки: {settings}")
+    open_games[room_id] = {'creator': {'sid': sid, 'nickname': nickname}, 'settings': settings}
+    print(f"[LOBBY] Игрок {nickname} создал комнату {room_id}. Настройки: {settings}")
     socketio.emit('update_lobby', get_lobby_data_list())
 
 @socketio.on('cancel_game')
 def handle_cancel_game():
     sid = request.sid
-    room_to_delete = None
-    for room_id, game_info in open_games.items():
-        if game_info['creator']['sid'] == sid:
-            room_to_delete = room_id
-            break
+    room_to_delete = next((rid for rid, g in open_games.items() if g['creator']['sid'] == sid), None)
     
     if room_to_delete:
         leave_room(room_to_delete)
         del open_games[room_to_delete]
-        print(f"[LOBBY] Создатель {sid} отменил свою игру. Комната {room_to_delete} удалена.")
+        print(f"[LOBBY] Создатель {sid} отменил игру. Комната {room_to_delete} удалена.")
         socketio.emit('update_lobby', get_lobby_data_list())
-
 
 @socketio.on('join_game')
 def handle_join_game(data):
-    creator_sid = data.get('creator_sid')
-    joiner_nickname = data.get('nickname')
+    creator_sid, joiner_nickname = data.get('creator_sid'), data.get('nickname')
     
-    room_id_to_join = None
-    game_to_join = None
-    for r_id, g_info in open_games.items():
-        if g_info['creator']['sid'] == creator_sid:
-            room_id_to_join = r_id
-            game_to_join = g_info
-            break
+    room_id_to_join = next((rid for rid, g in open_games.items() if g['creator']['sid'] == creator_sid), None)
 
-    if not room_id_to_join or not game_to_join:
-        print(f"[LOBBY] Попытка присоединиться к несуществующей или уже начатой игре. Отклонено.")
+    if not room_id_to_join:
+        print(f"[LOBBY] Попытка присоединиться к несуществующей игре. Отклонено.")
         return
-        
-    open_games.pop(room_id_to_join)
+    
+    game_to_join = open_games.pop(room_id_to_join)
     socketio.emit('update_lobby', get_lobby_data_list())
 
     creator_info = game_to_join['creator']
@@ -502,28 +469,27 @@ def handle_join_game(data):
     print(f"[GAME] Начинается PvP игра: {p1_info_full['nickname']} vs {p2_info_full['nickname']}. Комната: {room_id_to_join}")
     start_game_loop(room_id_to_join)
 
-
 @socketio.on('submit_guess')
 def handle_submit_guess(data):
     room_id, guess = data.get('roomId'), data.get('guess')
     game_session = active_games.get(room_id)
     if not game_session: return
     game = game_session['game']
-    current_player_nickname = game.players[game.current_player_index].get('nickname')
-    if game.players[game.current_player_index].get('sid') != request.sid: 
-        print(f"[SECURITY] Получен ответ от игрока не в свой ход. SID: {request.sid}. Ожидался ход: {current_player_nickname}")
+    current_player_sid = game.players[game.current_player_index].get('sid')
+    if current_player_sid != request.sid: 
         return
-    print(f"[GAME] Комната {room_id}: игрок {current_player_nickname} ответил '{guess}'")
+    
     result = game.process_guess(guess)
     if result['result'] in ['correct', 'correct_typo']:
-        print(f" -> Ответ верный (как '{result['player_data']['full_name']}')")
         time_spent = time.time() - game.turn_start_time
         game_session['turn_id'] = None
         game.time_banks[game.current_player_index] -= time_spent
         if game.time_banks[game.current_player_index] < 0:
-            game.time_banks[game.current_player_index] = 0; on_timer_end(room_id); return
+            on_timer_end(room_id); return
+        
         game.add_named_player(result['player_data'], game.current_player_index)
-        emit('guess_result', {'result': result['result'], 'corrected_name': result['player_data']['full_name']}) # Отправляем полное имя
+        emit('guess_result', {'result': result['result'], 'corrected_name': result['player_data']['full_name']})
+        
         if game.is_round_over():
             game_session['last_round_end_reason'] = 'completed'
             if game.mode != 'solo': game.scores[0] += 0.5; game.scores[1] += 0.5
@@ -531,7 +497,6 @@ def handle_submit_guess(data):
         else:
             start_next_human_turn(room_id)
     else:
-        print(f" -> Ответ неверный (причина: {result['result']})")
         emit('guess_result', {'result': result['result']})
 
 @socketio.on('surrender_round')
@@ -542,7 +507,6 @@ def handle_surrender(data):
     game = game_session['game']
     surrendering_player_index = game.current_player_index
     if game.players[surrendering_player_index].get('sid') != request.sid:
-        print(f"[SECURITY] Получен недействительный запрос на сдачу не в свой ход. SID: {request.sid}")
         return
     game_session['turn_id'] = None 
     game_session['last_round_end_reason'] = 'surrender'
