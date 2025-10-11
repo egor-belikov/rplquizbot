@@ -91,7 +91,6 @@ class GameState:
         self.settings = settings or default_settings
         
         self.num_rounds = self.settings.get('num_rounds', 16)
-        # Выбираем случайные клубы в зависимости от настроек игры
         available_clubs = list(all_clubs_data.keys())
         self.game_clubs = random.sample(available_clubs, min(self.num_rounds, len(available_clubs)))
 
@@ -116,7 +115,6 @@ class GameState:
         else: self.current_player_index = 0
         self.previous_round_loser_index = None
         
-        # Сброс таймеров на старте раунда
         time_bank_setting = self.settings.get('time_bank', 90.0)
         self.time_banks = {0: time_bank_setting, 1: time_bank_setting}
 
@@ -146,11 +144,9 @@ class GameState:
     def switch_player(self): self.current_player_index = 1 - self.current_player_index
     def is_round_over(self): return len(self.named_players) == len(self.players_for_comparison)
     def is_game_over(self):
-        # Проверяем, закончились ли раунды
         if self.current_round >= self.num_rounds - 1:
             self.end_reason = 'normal'
             return True
-        # Проверяем на досрочное завершение
         if len(self.players) > 1:
             score_diff = abs(self.scores[0] - self.scores[1])
             rounds_left = self.num_rounds - (self.current_round + 1)
@@ -367,19 +363,18 @@ def handle_start_game(data):
 @socketio.on('create_game')
 def handle_create_game(data):
     sid, nickname, settings = request.sid, data.get('nickname'), data.get('settings')
-    # Проверяем, не создал ли игрок уже игру
     for room_id, game_info in open_games.items():
         if game_info['creator']['sid'] == sid:
             print(f"[LOBBY] Игрок {nickname} уже создал игру. Отклонено.")
             return
             
-    # Генерируем уникальный ID для игры, который будет использоваться как room_id
     room_id = str(uuid.uuid4())
+    join_room(room_id) # <<< --- ИСПРАВЛЕНИЕ: СРАЗУ ДОБАВЛЯЕМ СОЗДАТЕЛЯ В КОМНАТУ
     open_games[room_id] = {
         'creator': {'sid': sid, 'nickname': nickname},
         'settings': settings
     }
-    print(f"[LOBBY] Игрок {nickname} создал комнату {room_id} с настройками: {settings}")
+    print(f"[LOBBY] Игрок {nickname} создал комнату {room_id} и присоединился к ней. Настройки: {settings}")
     socketio.emit('update_lobby', get_lobby_data())
 
 @socketio.on('join_game')
@@ -399,15 +394,14 @@ def handle_join_game(data):
         print(f"[LOBBY] Попытка присоединиться к несуществующей или уже начатой игре. Отклонено.")
         return
         
-    # Немедленно удаляем игру из списка открытых, чтобы никто больше не мог присоединиться
     open_games.pop(room_id_to_join)
-    socketio.emit('update_lobby', get_lobby_data()) # Обновляем лобби для всех остальных
+    socketio.emit('update_lobby', get_lobby_data())
 
     creator_info = game_to_join['creator']
     
     if creator_info['sid'] == request.sid:
         print(f"[LOBBY] Игрок {joiner_nickname} попытался присоединиться к своей же игре. Отклонено.")
-        open_games[room_id_to_join] = game_to_join # Возвращаем игру в лобби
+        open_games[room_id_to_join] = game_to_join
         socketio.emit('update_lobby', get_lobby_data())
         return
 
@@ -418,7 +412,6 @@ def handle_join_game(data):
     p1_info_full = {'sid': creator_info['sid'], 'nickname': creator_info['nickname'], 'user_obj': p1_user}
     p2_info_full = {'sid': request.sid, 'nickname': joiner_nickname, 'user_obj': p2_user}
     
-    join_room(room_id_to_join, sid=p1_info_full['sid'])
     join_room(room_id_to_join, sid=p2_info_full['sid'])
 
     game = GameState(p1_info_full, all_clubs_data, player2_info=p2_info_full, mode='pvp', settings=game_to_join['settings'])
@@ -500,7 +493,4 @@ if __name__ == '__main__':
     if not all_clubs_data: print("КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить players.csv")
     else:
         print("Сервер запускается...")
-        # Для локальной разработки:
-        # socketio.run(app, host='127.0.0.1', port=5000, debug=True)
-        # Для продакшена (если используете gunicorn/eventlet):
-        socketio.run(app)
+        socketio.run(app, debug=True)

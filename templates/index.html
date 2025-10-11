@@ -25,8 +25,6 @@
         .open-game-item .info .creator { font-weight: bold; }
         .open-game-item .info .details { font-size: 0.9em; color: #666; }
         .open-game-item .play-btn { white-space: nowrap; margin-left: 10px; }
-        
-        /* Стили для экрана конфигурации */
         .config-form-group { margin-bottom: 15px; }
         .config-form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
         .time-input-group { display: flex; justify-content: center; align-items: center; gap: 5px; }
@@ -36,6 +34,14 @@
         .rounds-selector label { border: 1px solid #ccc; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
         .rounds-selector input { display: none; }
         .rounds-selector input:checked + label { background-color: #007bff; color: white; border-color: #007bff; }
+        /* Стили для игрового экрана */
+        .timers-container { display: flex; justify-content: space-between; margin-bottom: 15px; }
+        .timer-box { padding: 10px; border-radius: 8px; border: 1px solid #ddd; width: 48%; }
+        .timer-box.active-turn { border-color: #007bff; box-shadow: 0 0 5px rgba(0,123,255,0.5); }
+        .timer-value { font-size: 1.5em; font-weight: bold; }
+        .live-named-list { max-height: 150px; overflow-y: auto; border: 1px solid #eee; padding: 5px; margin-bottom: 10px; }
+        .rating-positive { color: green; }
+        .rating-negative { color: red; }
     </style>
 </head>
 <body>
@@ -109,6 +115,37 @@
         <button id="back-to-lobby-btn" class="btn-secondary">Назад</button>
     </div>
     
+    <div id="game-screen" class="container hidden">
+        <h2 id="game-header">Тур 1/16: Клуб</h2>
+        <h3 id="score-display">Игрок1 0:0 Игрок2</h3>
+        <div class="timers-container">
+            <div id="my-timer-box" class="timer-box">
+                <div id="my-timer-nickname">Вы</div>
+                <div id="my-timer-value" class="timer-value">01:30</div>
+            </div>
+            <div id="opponent-timer-box" class="timer-box">
+                <div id="opponent-timer-nickname">Соперник</div>
+                <div id="opponent-timer-value" class="timer-value">01:30</div>
+            </div>
+        </div>
+        <div id="game-status">Ваш ход...</div>
+        <div class="live-named-list" id="live-named-list"></div>
+        <form id="guess-form">
+            <input type="text" id="guess-input" placeholder="Введите фамилию..." autocomplete="off">
+            <button type="submit" id="submit-guess-btn">Ответить</button>
+            <button type="button" id="surrender-btn" class="btn-danger">Сдаться</button>
+        </form>
+    </div>
+
+    <div id="game-over-screen" class="container hidden">
+        <h2 id="game-over-title">🏆 Победил Игрок1!</h2>
+        <p id="early-end-explanation" class="hidden">Игра завершена досрочно.</p>
+        <h3 id="final-score-display">Игрок1 10 : 6 Игрок2</h3>
+        <div id="rating-changes-display" class="hidden"></div>
+        <button id="back-to-lobby-from-game-over-btn">Вернуться в лобби</button>
+    </div>
+
+
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         const socket = io();
@@ -117,12 +154,11 @@
             auth: document.getElementById('auth-screen'),
             lobby: document.getElementById('lobby-screen'),
             config: document.getElementById('config-screen'),
-            // ... другие экраны
+            game: document.getElementById('game-screen'),
+            gameOver: document.getElementById('game-over-screen'),
         };
 
         // --- Элементы DOM ---
-        const loginFormContainer = document.getElementById('login-form-container');
-        const registerFormContainer = document.getElementById('register-form-container');
         const loginForm = document.getElementById('login-form'), loginNickname = document.getElementById('login-nickname'), loginPassword = document.getElementById('login-password'), loginStatus = document.getElementById('login-status');
         const registerForm = document.getElementById('register-form'), registerNickname = document.getElementById('register-nickname'), registerPassword = document.getElementById('register-password'), registerStatus = document.getElementById('register-status');
         const showRegisterFormBtn = document.getElementById('show-register-form'), showLoginFormBtn = document.getElementById('show-login-form');
@@ -132,15 +168,20 @@
         const openGamesList = document.getElementById('open-games-list');
         const soloBtn = document.getElementById('solo-btn'), vsBotBtn = document.getElementById('vs-bot-btn');
         
-        // Элементы экрана конфигурации
         const configTimeMin = document.getElementById('config-time-min'), configTimeSec = document.getElementById('config-time-sec');
         const configTimeMinMinus = document.getElementById('config-time-min-minus'), configTimeSecPlus = document.getElementById('config-time-sec-plus');
-        const backToLobbyBtn = document.getElementById('back-to-lobby-btn');
-        const submitCreateGameBtn = document.getElementById('submit-create-game-btn');
+        const backToLobbyBtn = document.getElementById('back-to-lobby-btn'), submitCreateGameBtn = document.getElementById('submit-create-game-btn');
+
+        const gameHeader = document.getElementById('game-header'), scoreDisplay = document.getElementById('score-display'), gameStatus = document.getElementById('game-status'), guessForm = document.getElementById('guess-form'), guessInput = document.getElementById('guess-input'), liveNamedList = document.getElementById('live-named-list'), surrenderBtn = document.getElementById('surrender-btn'), submitGuessBtn = document.getElementById('submit-guess-btn');
+        const myTimerBox = document.getElementById('my-timer-box'), myTimerNickname = document.getElementById('my-timer-nickname'), myTimerValue = document.getElementById('my-timer-value');
+        const opponentTimerBox = document.getElementById('opponent-timer-box'), opponentTimerNickname = document.getElementById('opponent-timer-nickname'), opponentTimerValue = document.getElementById('opponent-timer-value');
+        const gameOverTitle = document.getElementById('game-over-title'), earlyEndExplanation = document.getElementById('early-end-explanation'), finalScoreDisplay = document.getElementById('final-score-display'), ratingChangesDisplay = document.getElementById('rating-changes-display'), backToLobbyFromGameOverBtn = document.getElementById('back-to-lobby-from-game-over-btn');
 
         let currentUserNickname = null;
+        let clientState = {};
+        let isMyTurn = false;
+        let timerInterval;
 
-        // --- Функции ---
         function showScreen(screenName) {
             Object.values(screens).forEach(screen => screen && screen.classList.add('hidden'));
             if (screens[screenName]) screens[screenName].classList.remove('hidden');
@@ -149,6 +190,54 @@
         function startGame(mode) {
             if (!currentUserNickname) return alert("Ошибка: не удалось определить пользователя.");
             socket.emit('start_game', { mode: mode, nickname: currentUserNickname });
+        }
+
+        function formatTime(seconds) {
+            if (seconds < 0) seconds = 0;
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+        
+        function updateGameUI(state) {
+            clientState = state;
+            let myPlayerIndex = state.players[0].sid === socket.id ? 0 : 1;
+            if (!state.players[myPlayerIndex] || state.players[myPlayerIndex].sid !== socket.id) {
+                // Если что-то пошло не так, ищем себя в объекте
+                 for (const i in state.players) { if (state.players[i].sid === socket.id) { myPlayerIndex = parseInt(i, 10); break; } }
+            }
+
+            const opponentPlayerIndex = 1 - myPlayerIndex;
+            const activePlayerIndex = state.currentPlayerIndex;
+            isMyTurn = (myPlayerIndex === activePlayerIndex);
+
+            gameHeader.textContent = `Тур ${state.round}/${state.totalRounds}: ${state.clubName}`;
+            scoreDisplay.textContent = `${state.players[0].nickname} ${state.scores[0]} : ${state.scores[1]} ${state.players[1].nickname}`;
+            
+            myTimerNickname.textContent = state.players[myPlayerIndex].nickname + ' (Вы)';
+            opponentTimerNickname.textContent = state.players[opponentPlayerIndex].nickname;
+
+            submitGuessBtn.disabled = !isMyTurn;
+            surrenderBtn.disabled = !isMyTurn;
+            guessInput.placeholder = isMyTurn ? 'Введите фамилию...' : 'Ход соперника...';
+            gameStatus.textContent = isMyTurn ? 'Ваш ход...' : `Ожидаем ход игрока ${state.players[activePlayerIndex].nickname}...`;
+
+            if(isMyTurn) guessInput.focus();
+            
+            myTimerBox.classList.toggle('active-turn', isMyTurn);
+            opponentTimerBox.classList.toggle('active-turn', !isMyTurn);
+            
+            clearInterval(timerInterval);
+            let timeBanks = {...state.timeBanks};
+            myTimerValue.textContent = formatTime(timeBanks[myPlayerIndex]);
+            opponentTimerValue.textContent = formatTime(timeBanks[opponentPlayerIndex]);
+            
+            timerInterval = setInterval(() => {
+                timeBanks[activePlayerIndex] -= 0.1;
+                const activeTimerDisplay = (activePlayerIndex === myPlayerIndex) ? myTimerValue : opponentTimerValue;
+                activeTimerDisplay.textContent = formatTime(timeBanks[activePlayerIndex]);
+                if (timeBanks[activePlayerIndex] <= 0) clearInterval(timerInterval);
+            }, 100);
         }
 
         // --- Обработчики событий ---
@@ -165,14 +254,13 @@
             showScreen('auth');
         });
 
-        // Кнопки лобби
         createGameBtn.addEventListener('click', () => showScreen('config'));
         backToLobbyBtn.addEventListener('click', () => showScreen('lobby'));
-        leaderboardBtn.addEventListener('click', () => { /* Логика показа рейтинга */ alert("Рейтинг в разработке"); });
+        leaderboardBtn.addEventListener('click', () => alert("Рейтинг в разработке"));
         soloBtn.addEventListener('click', () => startGame('solo'));
         vsBotBtn.addEventListener('click', () => startGame('vs_bot'));
+        backToLobbyFromGameOverBtn.addEventListener('click', () => showScreen('lobby'));
 
-        // Логика экрана конфигурации
         submitCreateGameBtn.addEventListener('click', () => {
             const settings = {
                 time_bank: parseInt(configTimeMin.value) * 60 + parseInt(configTimeSec.value),
@@ -181,8 +269,9 @@
             socket.emit('create_game', { nickname: currentUserNickname, settings: settings });
             showScreen('lobby');
         });
+        
+        guessForm.addEventListener('submit', (e) => { e.preventDefault(); if (isMyTurn) { const guess = guessInput.value; if (guess) { socket.emit('submit_guess', { roomId: clientState.roomId, guess: guess }); guessInput.value = ''; } } });
 
-        // Управление временем в конфиге
         configTimeMinMinus.addEventListener('click', () => { if (configTimeMin.value > 0) configTimeMin.value = parseInt(configTimeMin.value) - 1; });
         configTimeSecPlus.addEventListener('click', () => {
             let sec = parseInt(configTimeSec.value);
@@ -190,8 +279,6 @@
             else { configTimeSec.value = 0; configTimeMin.value = parseInt(configTimeMin.value) + 1; }
         });
 
-
-        // Присоединение к игре
         openGamesList.addEventListener('click', e => {
             if (e.target.classList.contains('play-btn')) {
                 const creatorSid = e.target.dataset.creatorSid;
@@ -232,6 +319,32 @@
                 `;
                 openGamesList.appendChild(gameItem);
             });
+        });
+
+        socket.on('round_started', (state) => {
+            showScreen('game');
+            updateGameUI(state);
+        });
+
+        socket.on('game_over', (data) => {
+            showScreen('gameOver');
+            const player1Name = data.players[0].nickname;
+            const player2Name = (data.players[1]) ? data.players[1].nickname : 'Бот';
+            if (data.final_scores[0] > data.final_scores[1]) { gameOverTitle.textContent = `🏆 Победил ${player1Name}!`; } 
+            else if (data.final_scores[1] > data.final_scores[0]) { gameOverTitle.textContent = `🏆 Победил ${player2Name}!`; } 
+            else { gameOverTitle.textContent = "🤝 Ничья!"; }
+            earlyEndExplanation.classList.toggle('hidden', data.end_reason !== 'unreachable_score');
+            finalScoreDisplay.textContent = `${player1Name} ${data.final_scores[0]} : ${data.final_scores[1]} ${player2Name}`;
+            
+            if (data.mode === 'pvp' && data.rating_changes) {
+                const p1_change = data.rating_changes.p1.new - data.rating_changes.p1.old;
+                const p2_change = data.rating_changes.p2.new - data.rating_changes.p2.old;
+                const p1_sign = p1_change >= 0 ? '+' : ''; const p2_sign = p2_change >= 0 ? '+' : '';
+                ratingChangesDisplay.innerHTML = `<div class="rating-change">${player1Name}: ${data.rating_changes.p1.old} → ${data.rating_changes.p1.new} (<span class="${p1_change >= 0 ? 'rating-positive' : 'rating-negative'}">${p1_sign}${p1_change}</span>)</div><div class="rating-change">${player2Name}: ${data.rating_changes.p2.old} → ${data.rating_changes.p2.new} (<span class="${p2_change >= 0 ? 'rating-positive' : 'rating-negative'}">${p2_sign}${p2_change}</span>)</div>`;
+                ratingChangesDisplay.classList.remove('hidden');
+            } else {
+                ratingChangesDisplay.classList.add('hidden');
+            }
         });
 
         // Инициализация
