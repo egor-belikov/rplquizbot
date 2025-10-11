@@ -24,27 +24,30 @@
         .open-game-item .info { text-align: left; flex-grow: 1; }
         .open-game-item .info .creator { font-weight: bold; }
         .open-game-item .info .details { font-size: 0.9em; color: #666; }
-        .open-game-item .play-btn { white-space: nowrap; margin-left: 10px; }
+        .open-game-item .play-btn, .open-game-item .cancel-btn { white-space: nowrap; margin-left: 10px; }
         .config-form-group { margin-bottom: 15px; }
         .config-form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
         .time-input-group { display: flex; justify-content: center; align-items: center; gap: 5px; }
         .time-input-group input { width: 50px; text-align: center; }
-        .time-input-group button { min-width: 30px; padding: 5px; font-size: 1em; line-height: 1; }
         .rounds-selector { display: flex; justify-content: center; gap: 10px; margin-top: 5px; }
         .rounds-selector label { border: 1px solid #ccc; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
         .rounds-selector input { display: none; }
         .rounds-selector input:checked + label { background-color: #007bff; color: white; border-color: #007bff; }
-        /* Стили для игрового экрана и рейтинга */
         .timers-container { display: flex; justify-content: space-between; margin-bottom: 15px; }
         .timer-box { padding: 10px; border-radius: 8px; border: 1px solid #ddd; width: 48%; }
         .timer-box.active-turn { border-color: #007bff; box-shadow: 0 0 5px rgba(0,123,255,0.5); }
         .timer-value { font-size: 1.5em; font-weight: bold; }
-        .live-named-list { max-height: 150px; overflow-y: auto; border: 1px solid #eee; padding: 5px; margin-bottom: 10px; }
+        .live-named-list { max-height: 150px; overflow-y: auto; border: 1px solid #eee; padding: 5px; margin-bottom: 10px; text-align: left; }
+        .player-name { padding: 2px 5px; }
         .rating-positive { color: green; }
         .rating-negative { color: red; }
         #leaderboard-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         #leaderboard-table th, #leaderboard-table td { padding: 8px; border: 1px solid #ddd; }
         #leaderboard-table th { background-color: #f2f2f2; }
+        .summary-columns { display: flex; justify-content: space-around; text-align: left; }
+        .summary-column { width: 45%; }
+        .summary-column h4 { margin-bottom: 5px; }
+        .summary-column .player-name-list { max-height: 120px; overflow-y: auto; border: 1px solid #eee; padding: 5px; }
     </style>
 </head>
 <body>
@@ -98,11 +101,9 @@
         <div class="config-form-group">
             <label>Время на раунд</label>
             <div class="time-input-group">
-                <button id="config-time-min-minus">-</button>
                 <input type="number" id="config-time-min" value="1" min="0" max="10">
                 <span>:</span>
                 <input type="number" id="config-time-sec" value="30" min="0" max="59">
-                <button id="config-time-sec-plus">+</button>
             </div>
         </div>
         <div class="config-form-group">
@@ -140,6 +141,25 @@
         </form>
     </div>
 
+    <div id="summary-screen" class="container hidden">
+        <h2 id="summary-header">Итоги раунда: Клуб</h2>
+        <h3 id="summary-score-display">Счет</h3>
+        <div class="summary-columns">
+            <div class="summary-column" id="summary-human-column">
+                <h4 id="summary-human-name-header">Вы</h4>
+                <div class="player-name-list" id="summary-human-named-list"></div>
+            </div>
+            <div class="summary-column" id="summary-bot-column">
+                <h4 id="summary-bot-name-header">Соперник</h4>
+                <div class="player-name-list" id="summary-bot-named-list"></div>
+            </div>
+        </div>
+        <h3>Оставшиеся игроки:</h3>
+        <div class="player-name-list" id="summary-remaining-list" style="max-height: 100px;"></div>
+        <p>Следующий раунд через: <b id="summary-countdown">10</b></p>
+        <button id="skip-pause-btn">Пропустить</button>
+    </div>
+
     <div id="leaderboard-screen" class="container hidden">
         <h2>Рейтинг игроков</h2>
         <table id="leaderboard-table">
@@ -164,7 +184,6 @@
         <button id="back-to-lobby-from-game-over-btn">Вернуться в лобби</button>
     </div>
 
-
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         const socket = io();
@@ -174,6 +193,7 @@
             lobby: document.getElementById('lobby-screen'),
             config: document.getElementById('config-screen'),
             game: document.getElementById('game-screen'),
+            summary: document.getElementById('summary-screen'),
             gameOver: document.getElementById('game-over-screen'),
             leaderboard: document.getElementById('leaderboard-screen'),
         };
@@ -191,20 +211,21 @@
         const soloBtn = document.getElementById('solo-btn'), vsBotBtn = document.getElementById('vs-bot-btn');
         
         const configTimeMin = document.getElementById('config-time-min'), configTimeSec = document.getElementById('config-time-sec');
-        const configTimeMinMinus = document.getElementById('config-time-min-minus'), configTimeSecPlus = document.getElementById('config-time-sec-plus');
         const backToLobbyBtn = document.getElementById('back-to-lobby-btn'), submitCreateGameBtn = document.getElementById('submit-create-game-btn');
 
         const gameHeader = document.getElementById('game-header'), scoreDisplay = document.getElementById('score-display'), gameStatus = document.getElementById('game-status'), guessForm = document.getElementById('guess-form'), guessInput = document.getElementById('guess-input'), liveNamedList = document.getElementById('live-named-list'), surrenderBtn = document.getElementById('surrender-btn'), submitGuessBtn = document.getElementById('submit-guess-btn');
         const myTimerBox = document.getElementById('my-timer-box'), myTimerNickname = document.getElementById('my-timer-nickname'), myTimerValue = document.getElementById('my-timer-value');
         const opponentTimerBox = document.getElementById('opponent-timer-box'), opponentTimerNickname = document.getElementById('opponent-timer-nickname'), opponentTimerValue = document.getElementById('opponent-timer-value');
-        const gameOverTitle = document.getElementById('game-over-title'), earlyEndExplanation = document.getElementById('early-end-explanation'), finalScoreDisplay = document.getElementById('final-score-display'), ratingChangesDisplay = document.getElementById('rating-changes-display'), backToLobbyFromGameOverBtn = document.getElementById('back-to-lobby-from-game-over-btn');
+        
+        const summaryHeader = document.getElementById('summary-header'), summaryScoreDisplay = document.getElementById('summary-score-display'), summaryHumanColumn = document.getElementById('summary-human-column'), summaryBotColumn = document.getElementById('summary-bot-column'), summaryHumanNameHeader = document.getElementById('summary-human-name-header'), summaryBotNameHeader = document.getElementById('summary-bot-name-header'), summaryHumanNamedList = document.getElementById('summary-human-named-list'), summaryBotNamedList = document.getElementById('summary-bot-named-list'), summaryRemainingList = document.getElementById('summary-remaining-list'), summaryCountdown = document.getElementById('summary-countdown'), skipPauseBtn = document.getElementById('skip-pause-btn');
 
         const leaderboardBody = document.getElementById('leaderboard-body'), backToLobbyFromLeaderboardBtn = document.getElementById('back-to-lobby-from-leaderboard-btn');
+        const gameOverTitle = document.getElementById('game-over-title'), earlyEndExplanation = document.getElementById('early-end-explanation'), finalScoreDisplay = document.getElementById('final-score-display'), ratingChangesDisplay = document.getElementById('rating-changes-display'), backToLobbyFromGameOverBtn = document.getElementById('back-to-lobby-from-game-over-btn');
 
         let currentUserNickname = null;
         let clientState = {};
         let isMyTurn = false;
-        let timerInterval;
+        let timerInterval, summaryInterval;
 
         function showScreen(screenName) {
             Object.values(screens).forEach(screen => screen && screen.classList.add('hidden'));
@@ -251,6 +272,15 @@
             myTimerBox.classList.toggle('active-turn', isMyTurn);
             opponentTimerBox.classList.toggle('active-turn', !isMyTurn);
             
+            liveNamedList.innerHTML = '';
+            state.namedPlayers.forEach(player => {
+                const pDiv = document.createElement('div');
+                pDiv.className = 'player-name';
+                const author = state.players[player.by] ? `(${state.players[player.by].nickname})` : '';
+                pDiv.textContent = `${player.name} ${author}`;
+                liveNamedList.prepend(pDiv);
+            });
+
             clearInterval(timerInterval);
             let timeBanks = {...state.timeBanks};
             myTimerValue.textContent = formatTime(timeBanks[myPlayerIndex]);
@@ -286,7 +316,6 @@
         backToLobbyFromGameOverBtn.addEventListener('click', () => showScreen('lobby'));
         backToLobbyFromLeaderboardBtn.addEventListener('click', () => showScreen('lobby'));
 
-
         submitCreateGameBtn.addEventListener('click', () => {
             const settings = {
                 time_bank: parseInt(configTimeMin.value) * 60 + parseInt(configTimeSec.value),
@@ -297,20 +326,18 @@
         });
         
         guessForm.addEventListener('submit', (e) => { e.preventDefault(); if (isMyTurn) { const guess = guessInput.value; if (guess) { socket.emit('submit_guess', { roomId: clientState.roomId, guess: guess }); guessInput.value = ''; } } });
+        surrenderBtn.addEventListener('click', () => { if (!surrenderBtn.disabled) socket.emit('surrender_round', { roomId: clientState.roomId }); });
+        skipPauseBtn.addEventListener('click', () => { skipPauseBtn.disabled = true; socket.emit('request_skip_pause', { roomId: clientState.roomId }); });
 
-        configTimeMinMinus.addEventListener('click', () => { if (configTimeMin.value > 0) configTimeMin.value = parseInt(configTimeMin.value) - 1; });
-        configTimeSecPlus.addEventListener('click', () => {
-            let sec = parseInt(configTimeSec.value);
-            if (sec < 59) configTimeSec.value = sec + 1;
-            else { configTimeSec.value = 0; configTimeMin.value = parseInt(configTimeMin.value) + 1; }
-        });
 
         openGamesList.addEventListener('click', e => {
             if (e.target.classList.contains('play-btn')) {
                 const creatorSid = e.target.dataset.creatorSid;
                 if (currentUserNickname) {
                     socket.emit('join_game', { creator_sid: creatorSid, nickname: currentUserNickname });
-                } else { alert("Ошибка: не удалось определить пользователя."); }
+                }
+            } else if (e.target.classList.contains('cancel-btn')) {
+                socket.emit('cancel_game');
             }
         });
 
@@ -327,27 +354,35 @@
 
         socket.on('update_lobby', data => {
             openGamesList.innerHTML = '';
+            let userHasOpenGame = false;
             if (!data || data.length === 0) {
                 openGamesList.innerHTML = '<p>Нет открытых игр. Создайте свою!</p>';
-                return;
+            } else {
+                data.forEach(game => {
+                    if (game.creator_sid === socket.id) {
+                        userHasOpenGame = true;
+                    }
+                    const gameItem = document.createElement('div');
+                    gameItem.className = 'open-game-item';
+                    const time_bank = game.settings.time_bank;
+                    const time_str = `${Math.floor(time_bank / 60)}:${String(time_bank % 60).padStart(2, '0')}`;
+                    const buttonHtml = game.creator_sid === socket.id
+                        ? `<button class="cancel-btn btn-danger" data-creator-sid="${game.creator_sid}">Отменить</button>`
+                        : `<button class="play-btn" data-creator-sid="${game.creator_sid}">Играть</button>`;
+
+                    gameItem.innerHTML = `
+                        <div class="info">
+                            <span class="creator">${game.creator_nickname} (${game.creator_rating})</span>
+                            <div class="details">РПЛ, ${game.settings.num_rounds} раундов, ${time_str}</div>
+                        </div>
+                        ${buttonHtml}
+                    `;
+                    openGamesList.appendChild(gameItem);
+                });
             }
-            data.forEach(game => {
-                const gameItem = document.createElement('div');
-                gameItem.className = 'open-game-item';
-                const time_bank = game.settings.time_bank;
-                const time_str = `${Math.floor(time_bank / 60)}:${String(time_bank % 60).padStart(2, '0')}`;
-                gameItem.innerHTML = `
-                    <div class="info">
-                        <span class="creator">${game.creator_nickname} (${game.creator_rating})</span>
-                        <div class="details">РПЛ, ${game.settings.num_rounds} раундов, ${time_str}</div>
-                    </div>
-                    <button class="play-btn" data-creator-sid="${game.creator_sid}">Играть</button>
-                `;
-                openGamesList.appendChild(gameItem);
-            });
+            createGameBtn.disabled = userHasOpenGame;
         });
         
-        // ОБРАБОТЧИК ДАННЫХ РЕЙТИНГА
         socket.on('leaderboard_data', (data) => {
             leaderboardBody.innerHTML = '';
             data.forEach((user, index) => {
@@ -359,6 +394,7 @@
         });
 
         socket.on('round_started', (state) => {
+            clearInterval(summaryInterval);
             showScreen('game');
             updateGameUI(state);
         });
@@ -366,6 +402,47 @@
         socket.on('turn_updated', (state) => {
             updateGameUI(state);
         });
+        
+        socket.on('round_summary', (data) => {
+            showScreen('summary');
+            skipPauseBtn.disabled = false;
+            summaryHeader.textContent = `Итоги раунда: ${data.clubName}`;
+            summaryScoreDisplay.textContent = `${data.players[0].nickname} ${data.scores[0]} : ${data.scores[1]} ${data.players[1].nickname}`;
+            summaryHumanNameHeader.textContent = data.players[0].nickname;
+            summaryBotNameHeader.textContent = data.players[1].nickname;
+            
+            summaryHumanNamedList.innerHTML = ''; 
+            summaryBotNamedList.innerHTML = ''; 
+            summaryRemainingList.innerHTML = '';
+            
+            const allNamedPlayerNames = new Set(data.namedPlayers.map(p => p.name));
+            
+            data.namedPlayers.forEach(player => {
+                const pDiv = document.createElement('div');
+                pDiv.className = 'player-name';
+                pDiv.textContent = player.name;
+                if (player.by === 0) summaryHumanNamedList.appendChild(pDiv);
+                else summaryBotNamedList.appendChild(pDiv);
+            });
+            
+            data.fullPlayerList.forEach(playerName => {
+                if (!allNamedPlayerNames.has(playerName)) {
+                    const pDiv = document.createElement('div');
+                    pDiv.className = 'player-name';
+                    pDiv.textContent = playerName;
+                    summaryRemainingList.appendChild(pDiv);
+                }
+            });
+
+            let countdown = 10;
+            summaryCountdown.textContent = countdown;
+            summaryInterval = setInterval(() => {
+                countdown--;
+                summaryCountdown.textContent = countdown >= 0 ? countdown : 0;
+                if (countdown < 0) clearInterval(summaryInterval);
+            }, 1000);
+        });
+
 
         socket.on('game_over', (data) => {
             showScreen('gameOver');

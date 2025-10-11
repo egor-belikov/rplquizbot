@@ -2,7 +2,7 @@
 
 import os, csv, uuid, random, time, re
 from flask import Flask, render_template, request
-from flask_socketio import SocketIO, emit, join_room
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_sqlalchemy import SQLAlchemy
 from fuzzywuzzy import fuzz
 from glicko2 import Player
@@ -369,13 +369,29 @@ def handle_create_game(data):
             return
             
     room_id = str(uuid.uuid4())
-    join_room(room_id) # <<< --- ИСПРАВЛЕНИЕ: СРАЗУ ДОБАВЛЯЕМ СОЗДАТЕЛЯ В КОМНАТУ
+    join_room(room_id)
     open_games[room_id] = {
         'creator': {'sid': sid, 'nickname': nickname},
         'settings': settings
     }
     print(f"[LOBBY] Игрок {nickname} создал комнату {room_id} и присоединился к ней. Настройки: {settings}")
     socketio.emit('update_lobby', get_lobby_data())
+
+@socketio.on('cancel_game')
+def handle_cancel_game():
+    sid = request.sid
+    room_to_delete = None
+    for room_id, game_info in open_games.items():
+        if game_info['creator']['sid'] == sid:
+            room_to_delete = room_id
+            break
+    
+    if room_to_delete:
+        leave_room(room_to_delete)
+        del open_games[room_to_delete]
+        print(f"[LOBBY] Создатель {sid} отменил свою игру. Комната {room_to_delete} удалена.")
+        socketio.emit('update_lobby', get_lobby_data())
+
 
 @socketio.on('join_game')
 def handle_join_game(data):
