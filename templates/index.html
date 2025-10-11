@@ -29,10 +29,10 @@
         .config-form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
         .time-input-group { display: flex; justify-content: center; align-items: center; gap: 5px; }
         .time-input-group input { width: 50px; text-align: center; }
-        .rounds-selector { display: flex; justify-content: center; gap: 10px; margin-top: 5px; }
-        .rounds-selector label { border: 1px solid #ccc; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
-        .rounds-selector input { display: none; }
-        .rounds-selector input:checked + label { background-color: #007bff; color: white; border-color: #007bff; }
+        /* Стили для ползунка */
+        .rounds-slider-group { display: flex; justify-content: center; align-items: center; gap: 15px; }
+        #config-rounds-slider { flex-grow: 1; }
+        #config-rounds-value { font-weight: bold; font-size: 1.2em; min-width: 25px; }
         .timers-container { display: flex; justify-content: space-between; margin-bottom: 15px; }
         .timer-box { padding: 10px; border-radius: 8px; border: 1px solid #ddd; width: 48%; }
         .timer-box.active-turn { border-color: #007bff; box-shadow: 0 0 5px rgba(0,123,255,0.5); }
@@ -104,11 +104,10 @@
         </div>
         <div class="config-form-group">
             <label>Количество клубов</label>
-            <div class="rounds-selector" id="config-rounds">
-                <input type="radio" name="rounds" id="rounds-3" value="3"><label for="rounds-3">3</label>
-                <input type="radio" name="rounds" id="rounds-5" value="5"><label for="rounds-5">5</label>
-                <input type="radio" name="rounds" id="rounds-8" value="8"><label for="rounds-8">8</label>
-                <input type="radio" name="rounds" id="rounds-16" value="16" checked><label for="rounds-16">16</label>
+            <div class="rounds-slider-group">
+                <span>3</span>
+                <input type="range" id="config-rounds-slider" min="3" max="16" value="16">
+                <span id="config-rounds-value">16</span>
             </div>
         </div>
         <button id="submit-create-game-btn">Создать игру</button>
@@ -221,6 +220,9 @@
         
         const configTimeMin = document.getElementById('config-time-min'), configTimeSec = document.getElementById('config-time-sec');
         const backToLobbyBtn = document.getElementById('back-to-lobby-btn'), submitCreateGameBtn = document.getElementById('submit-create-game-btn');
+        // --- ИЗМЕНЕНИЕ: Новые элементы для ползунка ---
+        const configRoundsSlider = document.getElementById('config-rounds-slider');
+        const configRoundsValue = document.getElementById('config-rounds-value');
 
         const gameHeader = document.getElementById('game-header'), scoreDisplay = document.getElementById('score-display'), gameStatus = document.getElementById('game-status'), guessForm = document.getElementById('guess-form'), guessInput = document.getElementById('guess-input'), liveNamedList = document.getElementById('live-named-list'), surrenderBtn = document.getElementById('surrender-btn'), submitGuessBtn = document.getElementById('submit-guess-btn');
         const myTimerBox = document.getElementById('my-timer-box'), myTimerNickname = document.getElementById('my-timer-nickname'), myTimerValue = document.getElementById('my-timer-value');
@@ -334,12 +336,17 @@
             }
             const settings = {
                 time_bank: timeBank,
-                num_rounds: parseInt(document.querySelector('#config-rounds input[name="rounds"]:checked').value)
+                num_rounds: parseInt(configRoundsSlider.value) // <-- ИЗМЕНЕНИЕ: Читаем значение из ползунка
             };
             socket.emit('create_game', { nickname: currentUserNickname, settings: settings });
             showScreen('lobby');
         });
         
+        // --- ИЗМЕНЕНИЕ: Обновляем значение рядом с ползунком при его движении ---
+        configRoundsSlider.addEventListener('input', (e) => {
+            configRoundsValue.textContent = e.target.value;
+        });
+
         guessForm.addEventListener('submit', (e) => { e.preventDefault(); if (isMyTurn) { const guess = guessInput.value; if (guess) { socket.emit('submit_guess', { roomId: clientState.roomId, guess: guess }); guessInput.value = ''; } } });
         surrenderBtn.addEventListener('click', () => { if (!surrenderBtn.disabled) socket.emit('surrender_round', { roomId: clientState.roomId }); });
         skipPauseBtn.addEventListener('click', () => { skipPauseBtn.disabled = true; socket.emit('request_skip_pause', { roomId: clientState.roomId }); });
