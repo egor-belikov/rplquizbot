@@ -21,8 +21,9 @@
         .config-row { display: flex; justify-content: center; align-items: center; margin-bottom: 15px; }
         .config-row label { flex: 1; text-align: right; margin-right: 10px; }
         .config-row .input-group { flex: 2; display: flex; align-items: center; }
-        .config-row .input-group input { text-align: center; width: 50px; margin: 0 5px; }
+        .config-row .input-group input { text-align: center; width: 50px; margin: 0 5px; font-size: 1em; padding: 8px; border: 1px solid #ddd; border-radius: 8px; }
         .config-row .input-group button { font-size: 1.2em; padding: 0; width: 30px; height: 30px; line-height: 30px; }
+        #open-games-list { max-height: 200px; overflow-y: auto; }
         .open-games-container { margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px; }
         .open-game-item { display: flex; justify-content: space-between; align-items: center; background-color: #f8f9fa; padding: 10px; border-radius: 8px; margin-bottom: 10px; text-align: left; }
         .open-game-item .info { display: flex; flex-direction: column; gap: 2px; }
@@ -31,10 +32,42 @@
         .open-game-item .play-btn { font-size: 0.9em; padding: 8px 16px; }
         .training-modes { margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px; }
         .training-modes h3 { font-size: 1em; color: #6c757d; margin-bottom: 10px; }
+        #gameHeader, #summaryHeader { font-size: 1.1em; font-weight: bold; margin-bottom: 10px; }
+        #score-display, #summary-score-display, #final-score-display { font-size: 1.2em; font-weight: bold; margin-bottom: 10px; }
+        .players-list { max-height: 150px; overflow-y: auto; background-color: #f8f9fa; padding: 8px; border-radius: 8px; font-size: 0.9em; margin-top: 15px; }
+        .player-name { background-color: #e9ecef; padding: 5px; border-radius: 5px; margin-bottom: 5px; text-align: left; }
+        #leaderboard-table, #game-history-table { width: 100%; margin-top: 15px; border-collapse: collapse; }
+        #leaderboard-table th, #leaderboard-table td, #game-history-table th, #game-history-table td { padding: 8px 12px; border-bottom: 1px solid #eee; }
+        #leaderboard-table th, #game-history-table th { background-color: #f8f9fa; text-align: left;}
+        #surrender-btn { font-size: 0.8em; padding: 6px 12px; margin-top: 10px; }
+        .summary-layout, .timers-layout { margin-top: 15px; }
+        .summary-columns, .timers-columns { display: flex; justify-content: space-around; text-align: center; gap: 15px; }
+        .summary-column, .timer-box { flex: 1; min-width: 0; }
+        .summary-column h3 { font-size: 1em; margin-bottom: 5px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .summary-players-list { max-height: 120px; overflow-y: auto; background-color: #f8f9fa; padding: 8px; border-radius: 8px; font-size: 0.9em; }
+        #summary-remaining-container h3 { margin-top: 15px; margin-bottom: 5px; }
+        #skip-pause-btn { font-size: 0.9em; padding: 8px 16px; margin-top: 10px; }
+        #early-end-explanation { font-size: 0.9em; color: #6c757d; margin-top: -10px; margin-bottom: 10px; }
+        #rating-changes-display { margin-top: 15px; font-size: 0.9em; }
+        .rating-change { margin-bottom: 5px; }
+        .rating-positive { color: #28a745; }
+        .rating-negative { color: #dc3545; }
+        .timer-value { font-size: 1.5em; font-weight: bold; transition: color 0.3s; }
+        .timer-box { border: 1px solid #eee; padding: 5px; border-radius: 8px; transition: border-color 0.3s; }
+        .timer-box .nickname { font-size: 0.8em; color: #6c757d; }
+        .timer-box:not(.active-turn) .timer-value { color: #adb5bd !important; }
+        .timer-box.active-turn { border: 2px solid #007bff; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background-color: white; padding: 30px; border-radius: 12px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
     </style>
 </head>
 <body>
-    <div id="registration-screen" class="container hidden">...</div>
+    <div id="registration-screen" class="container hidden">
+        <h1>Добро пожаловать!</h1>
+        <p>Придумайте себе никнейм для игры.</p>
+        <form id="registration-form"><input type="text" id="nickname-input" placeholder="Ваш никнейм" autocomplete="off"><button type="submit">Войти</button></form>
+        <div id="registration-status"></div>
+    </div>
     <div id="lobby-screen" class="container hidden">
         <h1>Лобби</h1>
         <p>Привет, <b id="welcome-nickname"></b>!</p>
@@ -42,7 +75,9 @@
         <button id="leaderboard-btn">Рейтинг</button>
         <div class="open-games-container">
             <h3>Открытые игры:</h3>
-            <div id="open-games-list"></div>
+            <div id="open-games-list">
+                <p>Нет открытых игр. Создайте свою!</p>
+            </div>
         </div>
         <div class="training-modes">
             <h3>Тренировка</h3>
@@ -82,31 +117,95 @@
         <button id="submit-create-game-btn">Создать</button>
         <button id="back-to-lobby-btn" class="btn-secondary">Назад</button>
     </div>
+    <div id="leaderboard-screen" class="container hidden">
+        <h1>Таблица лидеров</h1>
+        <div style="max-height: 300px; overflow-y: auto;">
+            <table id="leaderboard-table">
+                <thead><tr><th>#</th><th>Игрок</th><th>Рейтинг</th></tr></thead>
+                <tbody id="leaderboard-body"></tbody>
+            </table>
+        </div>
+        <button id="back-to-menu-btn" class="btn-secondary">Назад</button>
+    </div>
+    <div id="game-screen" class="container hidden">
+        <div id="gameHeader"></div>
+        <div id="score-display"></div>
+        <div class="timers-layout">
+            <div class="timers-columns">
+                <div class="timer-box" id="my-timer-box">
+                    <div class="nickname" id="my-timer-nickname">Вы</div>
+                    <div class="timer-value" id="my-timer-value">01:30.00</div>
+                </div>
+                <div class="timer-box" id="opponent-timer-box">
+                    <div class="nickname" id="opponent-timer-nickname">Соперник</div>
+                    <div class="timer-value" id="opponent-timer-value">01:30.00</div>
+                </div>
+            </div>
+        </div>
+        <div id="game-status"></div>
+        <form id="guess-form"><input type="text" id="guess-input" placeholder="Введите фамилию..." autocomplete="off"><button type="submit" id="submit-guess-btn">Ответить</button></form>
+        <div class="players-list" id="live-named-list"></div>
+        <button id="surrender-btn" class="btn-secondary">Сдаться</button>
+    </div>
+    <div id="summary-screen" class="container hidden">
+        <h3 id="summaryHeader"></h3>
+        <div id="summary-score-display"></div>
+        <div class="summary-layout">
+            <div class="summary-columns">
+                <div class="summary-column" id="summary-human-column"><h3 id="summary-human-name-header"></h3><div class="summary-players-list" id="summary-human-named-list"></div></div>
+                <div class="summary-column" id="summary-bot-column"><h3 id="summary-bot-name-header"></h3><div class="summary-players-list" id="summary-bot-named-list"></div></div>
+            </div>
+            <div id="summary-remaining-container">
+                <h3>Осталось назвать:</h3>
+                <div class="summary-players-list" id="summary-remaining-list"></div>
+            </div>
+        </div>
+        <p>Следующий раунд через <span id="summary-countdown">10</span>...</p>
+        <button id="skip-pause-btn" class="btn-secondary">Пропустить</button>
+    </div>
+    <div id="game-over-screen" class="container hidden">
+        <h1 id="game-over-title">Игра окончена!</h1>
+        <p id="early-end-explanation" class="hidden"></p>
+        <h2 id="final-score-display"></h2>
+        <div id="rating-changes-display" class="hidden"></div>
+        <h3>История раундов:</h3>
+        <div style="max-height: 300px; overflow-y: auto;">
+            <table id="game-history-table">
+                <thead></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <button id="back-to-menu-from-game-over" class="btn-secondary">В главное меню</button>
+    </div>
+    <div id="disconnection-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h2>Соперник покинул игру</h2>
+            <p>Вы можете вернуться в лобби.</p>
+            <button id="back-to-lobby-from-disconnect" class="btn-secondary">Вернуться в лобби</button>
+        </div>
+    </div>
+
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         const socket = io();
-        const screens = { registration: document.getElementById('registration-screen'), mainMenu: document.getElementById('main-menu-screen'), leaderboard: document.getElementById('leaderboard-screen'), game: document.getElementById('game-screen'), summary: document.getElementById('summary-screen'), gameOver: document.getElementById('game-over-screen') };
+        const screens = { registration: document.getElementById('registration-screen'), lobby: document.getElementById('lobby-screen'), config: document.getElementById('config-screen'), leaderboard: document.getElementById('leaderboard-screen'), game: document.getElementById('game-screen'), summary: document.getElementById('summary-screen'), gameOver: document.getElementById('game-over-screen') };
         let currentUserNickname = null, clientState = {}, timerInterval;
-        const registrationForm = document.getElementById('registration-form'), nicknameInput = document.getElementById('nickname-input'), registrationStatus = document.getElementById('registration-status'), welcomeNickname = document.getElementById('welcome-nickname');
-        const soloBtn = document.getElementById('solo-btn'), vsBotBtn = document.getElementById('vs-bot-btn'), leaderboardBtn = document.getElementById('leaderboard-btn'), backToMenuBtn = document.getElementById('back-to-menu-btn'), leaderboardBody = document.getElementById('leaderboard-body'), pvpBtn = document.getElementById('pvp-btn'), pvpStatus = document.getElementById('pvp-status'), cancelPvpBtn = document.getElementById('cancel-pvp-btn');
+        const registrationForm = document.getElementById('registration-form'), nicknameInput = document.getElementById('nickname-input'), registrationStatus = document.getElementById('registration-status');
+        const welcomeNickname = document.getElementById('welcome-nickname'), soloBtn = document.getElementById('solo-btn'), vsBotBtn = document.getElementById('vs-bot-btn'), createGameBtn = document.getElementById('create-game-btn'), openGamesList = document.getElementById('open-games-list');
+        const configFormElements = { min: document.getElementById('config-time-min'), sec: document.getElementById('config-time-sec'), rounds: document.getElementById('config-rounds') };
+        const backToLobbyBtn = document.getElementById('back-to-lobby-btn'), submitCreateGameBtn = document.getElementById('submit-create-game-btn');
+        const leaderboardBtn = document.getElementById('leaderboard-btn'), backToMenuBtn = document.getElementById('back-to-menu-btn'), leaderboardBody = document.getElementById('leaderboard-body');
         const gameHeader = document.getElementById('gameHeader'), scoreDisplay = document.getElementById('score-display'), gameStatus = document.getElementById('game-status'), guessForm = document.getElementById('guess-form'), guessInput = document.getElementById('guess-input'), liveNamedList = document.getElementById('live-named-list'), surrenderBtn = document.getElementById('surrender-btn'), submitGuessBtn = document.getElementById('submit-guess-btn');
         const myTimerBox = document.getElementById('my-timer-box'), myTimerNickname = document.getElementById('my-timer-nickname'), myTimerValue = document.getElementById('my-timer-value');
         const opponentTimerBox = document.getElementById('opponent-timer-box'), opponentTimerNickname = document.getElementById('opponent-timer-nickname'), opponentTimerValue = document.getElementById('opponent-timer-value');
         const summaryHeader = document.getElementById('summaryHeader'), summaryScoreDisplay = document.getElementById('summary-score-display'), summaryHumanColumn = document.getElementById('summary-human-column'), summaryBotColumn = document.getElementById('summary-bot-column'), summaryHumanNameHeader = document.getElementById('summary-human-name-header'), summaryBotNameHeader = document.getElementById('summary-bot-name-header'), summaryHumanNamedList = document.getElementById('summary-human-named-list'), summaryBotNamedList = document.getElementById('summary-bot-named-list'), summaryRemainingList = document.getElementById('summary-remaining-list'), summaryCountdown = document.getElementById('summary-countdown'), skipPauseBtn = document.getElementById('skip-pause-btn');
         const gameOverTitle = document.getElementById('game-over-title'), earlyEndExplanation = document.getElementById('early-end-explanation'), finalScoreDisplay = document.getElementById('final-score-display'), ratingChangesDisplay = document.getElementById('rating-changes-display'), gameHistoryTable = document.getElementById('game-history-table'), backToMenuFromGameOverBtn = document.getElementById('back-to-menu-from-game-over');
+        const disconnectionModal = document.getElementById('disconnection-modal'), backToLobbyFromDisconnectBtn = document.getElementById('back-to-lobby-from-disconnect');
         
         let isMyTurn = false;
 
         function showScreen(screenName) { Object.values(screens).forEach(screen => screen.classList.add('hidden')); if (screens[screenName]) screens[screenName].classList.remove('hidden'); }
-        
-        function formatTime(seconds) {
-            if (seconds < 0) seconds = 0;
-            const mins = Math.floor(seconds / 60);
-            const secs = Math.floor(seconds % 60);
-            const ms = Math.floor((seconds - Math.floor(seconds)) * 100);
-            return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(2, '0')}`;
-        }
-        
+        function formatTime(seconds) { if (seconds < 0) seconds = 0; const mins = Math.floor(seconds / 60); const secs = Math.floor(seconds % 60); return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`; }
         function updateGameUI(state) {
             clientState = state;
             let myPlayerIndex = -1;
@@ -145,7 +244,6 @@
                 const pDiv = document.createElement('div'); pDiv.className = 'player-name';
                 const author = (state.mode !== 'solo' && state.players[1]) ? (player.by === 0 ? state.players[0].nickname : state.players[1].nickname) : '';
                 pDiv.textContent = author ? `${player.name} (${author})` : player.name;
-                // --- ИЗМЕНЕНИЕ: Добавляем в начало, а не в конец ---
                 liveNamedList.prepend(pDiv);
             });
             clearInterval(timerInterval);
@@ -168,48 +266,68 @@
             }, 50);
         }
         
-        function startGame(mode) {
-            if (!currentUserNickname) return;
-            soloBtn.disabled = true; vsBotBtn.disabled = true; pvpBtn.disabled = true; leaderboardBtn.disabled = true;
-            if (mode === 'pvp') {
-                pvpStatus.textContent = 'Поиск соперника';
-                pvpStatus.classList.add('searching-status');
-                cancelPvpBtn.classList.remove('hidden');
-            }
-            socket.emit('start_game', { mode: mode, nickname: currentUserNickname });
-        }
-        function resetMenu() {
-            pvpStatus.textContent = '';
-            pvpStatus.classList.remove('searching-status');
-            cancelPvpBtn.classList.add('hidden');
-            soloBtn.disabled = false; vsBotBtn.disabled = false; pvpBtn.disabled = false; leaderboardBtn.disabled = false;
-        }
+        function startGame(mode) { if (!currentUserNickname) return; socket.emit('start_game', { mode: mode, nickname: currentUserNickname }); }
         
-        window.addEventListener('load', () => { const savedNickname = localStorage.getItem('rpl_quiz_nickname'); if (savedNickname) { currentUserNickname = savedNickname; welcomeNickname.textContent = currentUserNickname; showScreen('mainMenu'); } else { showScreen('registration'); } });
+        window.addEventListener('load', () => {
+            const savedNickname = localStorage.getItem('rpl_quiz_nickname');
+            socket.emit('check_status', { nickname: savedNickname });
+        });
         registrationForm.addEventListener('submit', (e) => { e.preventDefault(); const nickname = nicknameInput.value.trim(); registrationStatus.textContent = "Проверяем..."; registrationStatus.className = ''; socket.emit('register_user', { nickname: nickname }); });
         soloBtn.addEventListener('click', () => startGame('solo'));
         vsBotBtn.addEventListener('click', () => startGame('vs_bot'));
-        pvpBtn.addEventListener('click', () => startGame('pvp'));
+        createGameBtn.addEventListener('click', () => showScreen('config'));
         leaderboardBtn.addEventListener('click', () => socket.emit('get_leaderboard'));
-        backToMenuBtn.addEventListener('click', () => resetMenu() & showScreen('mainMenu'));
-        cancelPvpBtn.addEventListener('click', () => { socket.emit('cancel_pvp_search'); resetMenu(); });
-        guessForm.addEventListener('submit', (e) => { e.preventDefault(); if(isMyTurn) { const guess = guessInput.value; if (guess) { socket.emit('submit_guess', { roomId: clientState.roomId, guess: guess }); guessInput.value = ''; }} });
-        surrenderBtn.addEventListener('click', () => { if(surrenderBtn.disabled) return; gameStatus.textContent = "Вы сдались..."; guessInput.disabled = true; surrenderBtn.disabled = true; socket.emit('surrender_round', { roomId: clientState.roomId }); });
-        backToMenuFromGameOverBtn.addEventListener('click', () => resetMenu() & showScreen('mainMenu'));
+        backToMenuBtn.addEventListener('click', () => showScreen('lobby'));
+        backToLobbyBtn.addEventListener('click', () => showScreen('lobby'));
+        submitCreateGameBtn.addEventListener('click', () => {
+            const settings = {
+                time_bank: parseInt(configFormElements.min.value) * 60 + parseInt(configFormElements.sec.value),
+                num_rounds: parseInt(configFormElements.rounds.value)
+            };
+            socket.emit('create_game', { nickname: currentUserNickname, settings: settings });
+            showScreen('lobby');
+        });
+        openGamesList.addEventListener('click', (e) => {
+            if (e.target.classList.contains('play-btn')) {
+                const creatorSid = e.target.dataset.creatorSid;
+                socket.emit('join_game', { creator_sid: creatorSid, nickname: currentUserNickname });
+            }
+        });
+        guessForm.addEventListener('submit', (e) => { e.preventDefault(); if (isMyTurn) { const guess = guessInput.value; if (guess) { socket.emit('submit_guess', { roomId: clientState.roomId, guess: guess }); guessInput.value = ''; } } });
+        surrenderBtn.addEventListener('click', () => { if (surrenderBtn.disabled) return; gameStatus.textContent = "Вы сдались..."; guessInput.disabled = true; surrenderBtn.disabled = true; socket.emit('surrender_round', { roomId: clientState.roomId }); });
+        backToMenuFromGameOverBtn.addEventListener('click', () => showScreen('lobby'));
         skipPauseBtn.addEventListener('click', () => {
             skipPauseBtn.disabled = true;
-            if(clientState.mode === 'pvp') { skipPauseBtn.textContent = 'Ожидаем второго...'; }
+            if (clientState.mode === 'pvp') { skipPauseBtn.textContent = 'Ожидаем второго...'; }
             socket.emit('request_skip_pause', { roomId: clientState.roomId });
         });
-        
-        socket.on('registration_status', (data) => { if (data.success) { currentUserNickname = data.nickname; localStorage.setItem('rpl_quiz_nickname', currentUserNickname); welcomeNickname.textContent = currentUserNickname; showScreen('mainMenu'); } else { registrationStatus.textContent = data.message; registrationStatus.className = 'error-message'; } });
+        backToLobbyFromDisconnectBtn.addEventListener('click', () => {
+            disconnectionModal.classList.add('hidden');
+            showScreen('lobby');
+        });
+
+        socket.on('status_ok', (data) => {
+            if (data.needs_registration) {
+                showScreen('registration');
+            } else {
+                currentUserNickname = localStorage.getItem('rpl_quiz_nickname');
+                welcomeNickname.textContent = currentUserNickname;
+                showScreen('lobby');
+                socket.emit('update_lobby_request');
+            }
+        });
+        socket.on('reconnect_to_game', (state) => {
+            console.log("Reconnecting to game:", state);
+            showScreen('game');
+            updateGameUI(state);
+        });
+        socket.on('registration_status', (data) => { if (data.success) { currentUserNickname = data.nickname; localStorage.setItem('rpl_quiz_nickname', currentUserNickname); welcomeNickname.textContent = currentUserNickname; showScreen('lobby'); } else { registrationStatus.textContent = data.message; registrationStatus.className = 'error-message'; } });
         socket.on('leaderboard_data', (data) => {
             leaderboardBody.innerHTML = '';
             data.forEach((user, index) => { const row = document.createElement('tr'); row.innerHTML = `<td>${index + 1}</td><td>${user.nickname}</td><td>${user.rating}</td>`; leaderboardBody.appendChild(row); });
             showScreen('leaderboard');
         });
-        socket.on('waiting_for_opponent', () => { console.log("Ждем второго игрока."); });
-        socket.on('round_started', (state) => { resetMenu(); showScreen('game'); updateGameUI(state); });
+        socket.on('round_started', (state) => { showScreen('game'); updateGameUI(state); });
         socket.on('turn_updated', (state) => { updateGameUI(state); });
         socket.on('guess_result', (data) => {
             if (data.result === 'correct') gameStatus.textContent = '✅ Верно!';
@@ -220,7 +338,7 @@
         socket.on('bot_guessed', (data) => { gameStatus.textContent = `Бот назвал: ${data.guess}`; });
         socket.on('timer_expired', (data) => {
             clearInterval(timerInterval);
-            if(timerValues[data.playerIndex]) {
+            if (timerValues[data.playerIndex]) {
                 timerValues[data.playerIndex].textContent = formatTime(0);
                 timerValues[data.playerIndex].style.color = '#dc3545';
             }
@@ -281,9 +399,11 @@
                 const p1_change = data.rating_changes.p1.new - data.rating_changes.p1.old;
                 const p2_change = data.rating_changes.p2.new - data.rating_changes.p2.old;
                 const p1_sign = p1_change >= 0 ? '+' : ''; const p2_sign = p2_change >= 0 ? '+' : '';
-                ratingChangesDisplay.innerHTML = `<div class="rating-change">${player1Name}: ${data.rating_changes.p1.old} → ${data.rating_changes.p1.new} (<span class="${p1_change >= 0 ? 'rating-positive':'rating-negative'}">${p1_sign}${p1_change}</span>)</div><div class="rating-change">${player2Name}: ${data.rating_changes.p2.old} → ${data.rating_changes.p2.new} (<span class="${p2_change >= 0 ? 'rating-positive':'rating-negative'}">${p2_sign}${p2_change}</span>)</div>`;
+                ratingChangesDisplay.innerHTML = `<div class="rating-change">${player1Name}: ${data.rating_changes.p1.old} → ${data.rating_changes.p1.new} (<span class="${p1_change >= 0 ? 'rating-positive' : 'rating-negative'}">${p1_sign}${p1_change}</span>)</div><div class="rating-change">${player2Name}: ${data.rating_changes.p2.old} → ${data.rating_changes.p2.new} (<span class="${p2_change >= 0 ? 'rating-positive' : 'rating-negative'}">${p2_sign}${p2_change}</span>)</div>`;
                 ratingChangesDisplay.classList.remove('hidden');
-            } else { ratingChangesDisplay.classList.add('hidden'); }
+            } else {
+                ratingChangesDisplay.classList.add('hidden');
+            }
             const tableHead = gameHistoryTable.querySelector('thead');
             const tableBody = gameHistoryTable.querySelector('tbody');
             tableBody.innerHTML = '';
@@ -307,6 +427,31 @@
                     tableBody.appendChild(row);
                 });
             }
+        });
+        socket.on('update_lobby', (data) => {
+            openGamesList.innerHTML = '';
+            if (data.length === 0) {
+                openGamesList.innerHTML = '<p>Нет открытых игр. Создайте свою!</p>';
+                return;
+            }
+            data.forEach(game => {
+                const gameItem = document.createElement('div');
+                gameItem.className = 'open-game-item';
+                const time_bank = game.settings.time_bank;
+                const time_str = `${Math.floor(time_bank / 60)}:${String(time_bank % 60).padStart(2, '0')}`;
+                gameItem.innerHTML = `
+                    <div class="info">
+                        <span class="creator">${game.creator_nickname} (${game.creator_rating})</span>
+                        <span class="details">РПЛ, ${game.settings.num_rounds} раундов, ${time_str}</span>
+                    </div>
+                    <button class="play-btn" data-creator-sid="${game.creator_sid}">Играть</button>
+                `;
+                openGamesList.appendChild(gameItem);
+            });
+        });
+        socket.on('opponent_disconnected', (data) => {
+            clearInterval(timerInterval);
+            disconnectionModal.classList.remove('hidden');
         });
     </script>
 </body>
