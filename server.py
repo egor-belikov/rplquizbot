@@ -102,7 +102,7 @@ class GameState:
             else: self.current_player_index = self.current_round % 2
         else: self.current_player_index = 0
         self.previous_round_loser_index = None
-        self.time_banks = {i: self.settings.get('time_bank', 90.0) for i in self.players}
+        self.time_banks = {0: self.settings.get('time_bank', 90.0), 1: self.settings.get('time_bank', 90.0)}
         self.current_club_name = self.game_clubs[self.current_round]
         player_objects = self.all_clubs_data[self.current_club_name]
         self.players_for_comparison = sorted(player_objects, key=lambda p: p['primary_name'])
@@ -141,7 +141,6 @@ class GameState:
         return False
 
 active_games, open_games = {}, {}
-
 def get_game_state_for_client(game, room_id):
     return { 'roomId': room_id, 'mode': game.mode, 'players': {i: {'nickname': p['nickname'], 'sid': p['sid']} for i, p in game.players.items()}, 'scores': game.scores, 'round': game.current_round + 1, 'totalRounds': game.num_rounds, 'clubName': game.current_club_name, 'namedPlayers': game.named_players, 'fullPlayerList': [p['primary_name'] for p in game.players_for_comparison], 'currentPlayerIndex': game.current_player_index, 'timeBanks': game.time_banks }
 
@@ -169,7 +168,6 @@ def on_timer_end(room_id):
     game = game_session['game']
     loser_index = game.current_player_index
     game.time_banks[loser_index] = 0.0
-    print(f"[GAME] Игрок {game.players[loser_index]['nickname']} просрочил время в комнате {room_id}")
     socketio.emit('timer_expired', {'playerIndex': loser_index, 'timeBanks': game.time_banks}, room=room_id)
     if game.mode != 'solo':
         winner_index = 1 - loser_index
@@ -224,64 +222,35 @@ def pause_watcher(room_id, pause_id):
 def get_lobby_data():
     lobby_list = []
     with app.app_context():
-        for creator_sid, game_info in open_games.items():
+        for room_id, game_info in open_games.items():
             creator_user = User.query.filter_by(nickname=game_info['creator']['nickname']).first()
             if creator_user:
-                lobby_list.append({ 'creator_sid': creator_sid, 'settings': game_info['settings'], 'creator_nickname': creator_user.nickname, 'creator_rating': int(creator_user.rating) })
+                lobby_list.append({
+                    'room_id': room_id,
+                    'settings': game_info['settings'],
+                    'creator_nickname': creator_user.nickname,
+                    'creator_rating': int(creator_user.rating)
+                })
     return lobby_list
 
 @socketio.on('connect')
 def handle_connect():
     print(f"[CONNECTION] Клиент подключился: {request.sid}")
+    emit('update_lobby', get_lobby_data())
 
 @socketio.on('disconnect')
 def handle_disconnect():
     print(f"[CONNECTION] Клиент отключился: {request.sid}")
-    if request.sid in open_games:
-        nickname = open_games.pop(request.sid)['creator']['nickname']
-        print(f"[LOBBY] Создатель комнаты {nickname} отключился. Комната удалена.")
+    room_to_delete = None
+    for room_id, game_info in open_games.items():
+        if game_info['creator']['sid'] == request.sid:
+            room_to_delete = room_id
+            break
+    if room_to_delete:
+        del open_games[room_to_delete]
+        print(f"[LOBBY] Создатель комнаты {room_to_delete} отключился. Комната удалена.")
         socketio.emit('update_lobby', get_lobby_data())
-    else:
-        for room_id, game_session in list(active_games.items()):
-            game = game_session['game']
-            leaver_index, winner_index = -1, -1
-            if game.players.get(0, {}).get('sid') == request.sid: leaver_index, winner_index = 0, 1
-            elif game.players.get(1, {}).get('sid') == request.sid: leaver_index, winner_index = 1, 0
-            if leaver_index != -1:
-                leaver_nickname = game.players[leaver_index]['nickname']
-                if len(game.players) > 1:
-                    winner_nickname = game.players[winner_index]['nickname']
-                    winner_sid = game.players[winner_index]['sid']
-                    print(f"[DISCONNECT] Игрок {leaver_nickname} вышел из игры {room_id}. Победа присуждена {winner_nickname}.")
-                    if winner_sid != 'BOT':
-                        print(f"[DISCONNECT] Отправляем уведомление игроку {winner_nickname} ({winner_sid}).")
-                        socketio.emit('opponent_disconnected', {'winner': winner_nickname}, to=winner_sid)
-                del active_games[room_id]
-                break
 
-@socketio.on('check_status')
-def handle_check_status(data):
-    nickname = data.get('nickname')
-    sid = request.sid
-    print(f"[STATUS] Клиент {nickname or 'Новый'} ({sid}) запрашивает статус.")
-    if not nickname:
-        emit('status_ok', {'needs_registration': True})
-        return
-    for room_id, game_session in active_games.items():
-        game = game_session['game']
-        for index, player in game.players.items():
-            if player['nickname'] == nickname:
-                print(f"[STATUS] Игрок {nickname} найден в активной игре {room_id}. Восстанавливаем сессию.")
-                player['sid'] = sid
-                join_room(room_id)
-                emit('reconnect_to_game', get_game_state_for_client(game, room_id))
-                return
-    stale_room_sid = next((creator_sid for creator_sid, info in open_games.items() if info['creator']['nickname'] == nickname), None)
-    if stale_room_sid:
-        del open_games[stale_room_sid]
-        print(f"[LOBBY] Удалена старая комната игрока {nickname}.")
-        socketio.emit('update_lobby', get_lobby_data())
-    emit('status_ok', {'needs_registration': False})
 
 @socketio.on('request_skip_pause')
 def handle_request_skip_pause(data):
@@ -344,39 +313,54 @@ def handle_start_game(data):
 @socketio.on('create_game')
 def handle_create_game(data):
     sid, nickname, settings = request.sid, data.get('nickname'), data.get('settings')
-    if any(info['creator']['sid'] == sid for info in open_games.values()):
-        print(f"[LOBBY] Игрок {nickname} уже создал игру. Отклонено.")
-        return
-    open_games[sid] = { 'creator': {'sid': sid, 'nickname': nickname}, 'settings': settings }
-    print(f"[LOBBY] Игрок {nickname} создал комнату с настройками: {settings}")
+    # Проверяем, не создал ли игрок уже игру
+    for room_id, game_info in open_games.items():
+        if game_info['creator']['sid'] == sid:
+            print(f"[LOBBY] Игрок {nickname} уже создал игру. Отклонено.")
+            return
+            
+    room_id = str(uuid.uuid4())
+    open_games[room_id] = {
+        'creator': {'sid': sid, 'nickname': nickname},
+        'settings': settings
+    }
+    print(f"[LOBBY] Игрок {nickname} создал комнату {room_id} с настройками: {settings}")
     socketio.emit('update_lobby', get_lobby_data())
 
 @socketio.on('join_game')
 def handle_join_game(data):
-    creator_sid = data.get('creator_sid')
+    room_id = data.get('room_id')
     joiner_nickname = data.get('nickname')
-    if creator_sid not in open_games:
-        print(f"[LOBBY] Попытка присоединиться к несуществующей игре. Отклонено.")
-        emit('update_lobby', get_lobby_data())
+    
+    if room_id not in open_games:
+        print(f"[LOBBY] Попытка присоединиться к несуществующей комнате {room_id}. Отклонено.")
         return
-    game_to_join = open_games.pop(creator_sid)
+        
+    game_to_join = open_games.pop(room_id)
     creator_info = game_to_join['creator']
+    
     if creator_info['sid'] == request.sid:
         print(f"[LOBBY] Игрок {joiner_nickname} попытался присоединиться к своей же игре. Отклонено.")
-        open_games[creator_sid] = game_to_join
+        open_games[room_id] = game_to_join # Возвращаем игру в лобби
         return
+
     with app.app_context():
         p1_user = get_or_create_user(creator_info['nickname'])
         p2_user = get_or_create_user(joiner_nickname)
+
     p1_info_full = {'sid': creator_info['sid'], 'nickname': creator_info['nickname'], 'user_obj': p1_user}
     p2_info_full = {'sid': request.sid, 'nickname': joiner_nickname, 'user_obj': p2_user}
-    room_id = str(uuid.uuid4())
-    join_room(room_id, sid=p1_info_full['sid']); join_room(room_id, sid=p2_info_full['sid'])
+    
+    join_room(room_id, sid=p1_info_full['sid'])
+    join_room(room_id, sid=p2_info_full['sid'])
+
     game = GameState(p1_info_full, all_clubs_data, player2_info=p2_info_full, mode='pvp', settings=game_to_join['settings'])
     active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
+    
     print(f"[GAME] Начинается PvP игра: {p1_info_full['nickname']} vs {p2_info_full['nickname']}. Комната: {room_id}")
-    socketio.emit('update_lobby', get_lobby_data())
-    start_game_loop(room_id)
+    socketio.emit('update_lobby', get_lobby_data()) # Обновляем лобби для всех остальных
+    start_game_loop(room_id) # Начинаем игру для участников комнаты
+
 
 @socketio.on('submit_guess')
 def handle_submit_guess(data):
@@ -451,3 +435,4 @@ if __name__ == '__main__':
     else:
         print("Сервер запускается в локальном режиме...")
         socketio.run(app, host='127.0.0.1', port=5000, debug=True)
+        # print("Сервер запускается в продакшн режиме...")
