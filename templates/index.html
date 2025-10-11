@@ -19,6 +19,8 @@
         .error-message { color: #dc3545; }
         .auth-toggle { font-size: 0.9em; color: #007bff; cursor: pointer; text-decoration: underline; margin-top: 15px; }
         .lobby-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .lobby-stats { display: flex; justify-content: space-around; padding: 10px; margin-bottom: 20px; background-color: #f0f2f5; border-radius: 8px; }
+        .lobby-stats span { font-size: 0.9em; color: #555; }
         .open-games-container { margin-top: 20px; }
         .open-game-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border: 1px solid #eee; border-radius: 8px; margin-bottom: 8px; background-color: #fafafa; }
         .open-game-item .info { text-align: left; flex-grow: 1; }
@@ -29,7 +31,6 @@
         .config-form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
         .time-input-group { display: flex; justify-content: center; align-items: center; gap: 5px; }
         .time-input-group input { width: 50px; text-align: center; }
-        /* Стили для ползунка */
         .rounds-slider-group { display: flex; justify-content: center; align-items: center; gap: 15px; }
         #config-rounds-slider { flex-grow: 1; }
         #config-rounds-value { font-weight: bold; font-size: 1.2em; min-width: 25px; }
@@ -79,6 +80,10 @@
         <div class="lobby-header">
             <p style="margin:0;">Привет, <b id="welcome-nickname"></b>!</p>
             <button id="logout-btn" class="btn-secondary" style="font-size:0.8em; padding: 6px 12px;">Выйти</button>
+        </div>
+        <div class="lobby-stats">
+            <span>Игроков в лобби: <b id="online-players-count">0</b></span>
+            <span>Активных игр: <b id="active-games-count">0</b></span>
         </div>
         <button id="create-game-btn">Создать игру</button>
         <button id="leaderboard-btn">Рейтинг</button>
@@ -217,10 +222,11 @@
         const welcomeNickname = document.getElementById('welcome-nickname'), logoutBtn = document.getElementById('logout-btn');
         const createGameBtn = document.getElementById('create-game-btn'), leaderboardBtn = document.getElementById('leaderboard-btn');
         const openGamesList = document.getElementById('open-games-list');
+        const onlinePlayersCount = document.getElementById('online-players-count');
+        const activeGamesCount = document.getElementById('active-games-count');
         
         const configTimeMin = document.getElementById('config-time-min'), configTimeSec = document.getElementById('config-time-sec');
         const backToLobbyBtn = document.getElementById('back-to-lobby-btn'), submitCreateGameBtn = document.getElementById('submit-create-game-btn');
-        // --- ИЗМЕНЕНИЕ: Новые элементы для ползунка ---
         const configRoundsSlider = document.getElementById('config-rounds-slider');
         const configRoundsValue = document.getElementById('config-rounds-value');
 
@@ -336,13 +342,12 @@
             }
             const settings = {
                 time_bank: timeBank,
-                num_rounds: parseInt(configRoundsSlider.value) // <-- ИЗМЕНЕНИЕ: Читаем значение из ползунка
+                num_rounds: parseInt(configRoundsSlider.value)
             };
             socket.emit('create_game', { nickname: currentUserNickname, settings: settings });
             showScreen('lobby');
         });
         
-        // --- ИЗМЕНЕНИЕ: Обновляем значение рядом с ползунком при его движении ---
         configRoundsSlider.addEventListener('input', (e) => {
             configRoundsValue.textContent = e.target.value;
         });
@@ -404,6 +409,11 @@
             createGameBtn.disabled = userHasOpenGame;
         });
         
+        socket.on('update_lobby_stats', (data) => {
+            onlinePlayersCount.textContent = data.online_players;
+            activeGamesCount.textContent = data.active_games;
+        });
+
         socket.on('leaderboard_data', (data) => {
             cachedLeaderboardData = data;
             leaderboardBody.innerHTML = '';
