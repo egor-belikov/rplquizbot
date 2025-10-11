@@ -41,13 +41,14 @@
         .player-name { padding: 2px 5px; }
         .rating-positive { color: green; }
         .rating-negative { color: red; }
-        #leaderboard-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        #leaderboard-table th, #leaderboard-table td { padding: 8px; border: 1px solid #ddd; }
-        #leaderboard-table th { background-color: #f2f2f2; }
-        .summary-columns { display: flex; justify-content: space-around; text-align: left; }
-        .summary-column { width: 45%; }
-        .summary-column h4 { margin-bottom: 5px; }
-        .summary-column .player-name-list { max-height: 120px; overflow-y: auto; border: 1px solid #eee; padding: 5px; }
+        #leaderboard-table, #game-history-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        #leaderboard-table th, #leaderboard-table td, #game-history-table th, #game-history-table td { padding: 8px; border: 1px solid #ddd; }
+        #leaderboard-table th, #game-history-table th { background-color: #f2f2f2; }
+        .summary-columns { display: flex; justify-content: space-around; text-align: left; margin: 15px 0; }
+        .summary-column { width: 45%; padding: 10px; border: 1px solid #e0e0e0; border-radius: 8px; background-color: #f9f9f9; }
+        .summary-column h4 { margin-top: 0; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid #ddd; }
+        .summary-column .player-name-list { max-height: 150px; overflow-y: auto; text-align: left;}
+        .summary-column .player-name { padding: 4px 8px; border-radius: 4px; margin-bottom: 4px; background-color: #fff; border: 1px solid #eee;}
     </style>
 </head>
 <body>
@@ -154,8 +155,8 @@
                 <div class="player-name-list" id="summary-bot-named-list"></div>
             </div>
         </div>
-        <h3>Оставшиеся игроки:</h3>
-        <div class="player-name-list" id="summary-remaining-list" style="max-height: 100px;"></div>
+        <h4>Оставшиеся игроки:</h4>
+        <div class="player-name-list" id="summary-remaining-list" style="max-height: 100px; margin: 0 auto; width: 90%;"></div>
         <p>Следующий раунд через: <b id="summary-countdown">10</b></p>
         <button id="skip-pause-btn">Пропустить</button>
     </div>
@@ -180,8 +181,15 @@
         <h2 id="game-over-title">🏆 Победил Игрок1!</h2>
         <p id="early-end-explanation" class="hidden">Игра завершена досрочно.</p>
         <h3 id="final-score-display">Игрок1 10 : 6 Игрок2</h3>
-        <div id="rating-changes-display" class="hidden"></div>
-        <button id="back-to-lobby-from-game-over-btn">Вернуться в лобби</button>
+        <div id="rating-changes-display" class="hidden" style="margin-bottom: 15px;"></div>
+        <div id="game-history-container" class="hidden">
+            <h4>История раундов</h4>
+            <table id="game-history-table">
+                <thead></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <button id="back-to-lobby-from-game-over-btn" style="margin-top: 15px;">Вернуться в лобби</button>
     </div>
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
@@ -221,11 +229,13 @@
 
         const leaderboardBody = document.getElementById('leaderboard-body'), backToLobbyFromLeaderboardBtn = document.getElementById('back-to-lobby-from-leaderboard-btn');
         const gameOverTitle = document.getElementById('game-over-title'), earlyEndExplanation = document.getElementById('early-end-explanation'), finalScoreDisplay = document.getElementById('final-score-display'), ratingChangesDisplay = document.getElementById('rating-changes-display'), backToLobbyFromGameOverBtn = document.getElementById('back-to-lobby-from-game-over-btn');
+        const gameHistoryContainer = document.getElementById('game-history-container'), gameHistoryTable = document.getElementById('game-history-table');
 
         let currentUserNickname = null;
         let clientState = {};
         let isMyTurn = false;
-        let timerInterval, summaryInterval;
+        let timerInterval, summaryInterval, gameStatusTimeout;
+        let cachedLeaderboardData = [];
 
         function showScreen(screenName) {
             Object.values(screens).forEach(screen => screen && screen.classList.add('hidden'));
@@ -246,10 +256,9 @@
         
         function updateGameUI(state) {
             clientState = state;
-            let myPlayerIndex = state.players[0].sid === socket.id ? 0 : 1;
-            if (!state.players[myPlayerIndex] || state.players[myPlayerIndex].sid !== socket.id) {
-                 for (const i in state.players) { if (state.players[i].sid === socket.id) { myPlayerIndex = parseInt(i, 10); break; } }
-            }
+            let myPlayerIndex = -1;
+            for (const i in state.players) { if (state.players[i].sid === socket.id) { myPlayerIndex = parseInt(i, 10); break; } }
+            if (myPlayerIndex === -1) return; // Не нашли себя в игре, выходим
 
             const opponentPlayerIndex = 1 - myPlayerIndex;
             const activePlayerIndex = state.currentPlayerIndex;
@@ -284,12 +293,14 @@
             clearInterval(timerInterval);
             let timeBanks = {...state.timeBanks};
             myTimerValue.textContent = formatTime(timeBanks[myPlayerIndex]);
-            opponentTimerValue.textContent = formatTime(timeBanks[opponentPlayerIndex]);
+            if (state.players[opponentPlayerIndex]) {
+                opponentTimerValue.textContent = formatTime(timeBanks[opponentPlayerIndex]);
+            }
             
             timerInterval = setInterval(() => {
                 timeBanks[activePlayerIndex] -= 0.1;
                 const activeTimerDisplay = (activePlayerIndex === myPlayerIndex) ? myTimerValue : opponentTimerValue;
-                activeTimerDisplay.textContent = formatTime(timeBanks[activePlayerIndex]);
+                if(activeTimerDisplay) activeTimerDisplay.textContent = formatTime(timeBanks[activePlayerIndex]);
                 if (timeBanks[activePlayerIndex] <= 0) clearInterval(timerInterval);
             }, 100);
         }
@@ -310,15 +321,23 @@
 
         createGameBtn.addEventListener('click', () => showScreen('config'));
         backToLobbyBtn.addEventListener('click', () => showScreen('lobby'));
-        leaderboardBtn.addEventListener('click', () => socket.emit('get_leaderboard'));
+        leaderboardBtn.addEventListener('click', () => {
+            socket.emit('get_leaderboard');
+            showScreen('leaderboard');
+        });
         soloBtn.addEventListener('click', () => startGame('solo'));
         vsBotBtn.addEventListener('click', () => startGame('vs_bot'));
         backToLobbyFromGameOverBtn.addEventListener('click', () => showScreen('lobby'));
         backToLobbyFromLeaderboardBtn.addEventListener('click', () => showScreen('lobby'));
 
         submitCreateGameBtn.addEventListener('click', () => {
+            const timeBank = parseInt(configTimeMin.value) * 60 + parseInt(configTimeSec.value);
+            if (isNaN(timeBank) || timeBank <= 0) {
+                alert("Пожалуйста, введите корректное время.");
+                return;
+            }
             const settings = {
-                time_bank: parseInt(configTimeMin.value) * 60 + parseInt(configTimeSec.value),
+                time_bank: timeBank,
                 num_rounds: parseInt(document.querySelector('#config-rounds input[name="rounds"]:checked').value)
             };
             socket.emit('create_game', { nickname: currentUserNickname, settings: settings });
@@ -328,7 +347,6 @@
         guessForm.addEventListener('submit', (e) => { e.preventDefault(); if (isMyTurn) { const guess = guessInput.value; if (guess) { socket.emit('submit_guess', { roomId: clientState.roomId, guess: guess }); guessInput.value = ''; } } });
         surrenderBtn.addEventListener('click', () => { if (!surrenderBtn.disabled) socket.emit('surrender_round', { roomId: clientState.roomId }); });
         skipPauseBtn.addEventListener('click', () => { skipPauseBtn.disabled = true; socket.emit('request_skip_pause', { roomId: clientState.roomId }); });
-
 
         openGamesList.addEventListener('click', e => {
             if (e.target.classList.contains('play-btn')) {
@@ -384,13 +402,14 @@
         });
         
         socket.on('leaderboard_data', (data) => {
+            cachedLeaderboardData = data;
             leaderboardBody.innerHTML = '';
-            data.forEach((user, index) => {
+            cachedLeaderboardData.forEach((user, index) => {
                 const row = document.createElement('tr');
                 row.innerHTML = `<td>${index + 1}</td><td>${user.nickname}</td><td>${user.rating}</td>`;
                 leaderboardBody.appendChild(row);
             });
-            showScreen('leaderboard');
+            // Не переключаем экран, если он не активен, просто обновляем данные
         });
 
         socket.on('round_started', (state) => {
@@ -403,9 +422,29 @@
             updateGameUI(state);
         });
         
+        socket.on('guess_result', (data) => {
+            clearTimeout(gameStatusTimeout);
+            let message = '';
+            switch(data.result) {
+                case 'correct': message = '✅ Верно!'; break;
+                case 'correct_typo': message = `✅ Верно! (Засчитано как: ${data.corrected_name})`; break;
+                case 'already_named': message = 'Такого уже называли!'; break;
+                default: message = '❌ Неверно!';
+            }
+            gameStatus.textContent = message;
+            
+            gameStatusTimeout = setTimeout(() => {
+                // Если ход все еще наш, возвращаем стандартное сообщение
+                if (isMyTurn) {
+                    gameStatus.textContent = 'Ваш ход...';
+                }
+            }, 2000);
+        });
+
         socket.on('round_summary', (data) => {
             showScreen('summary');
             skipPauseBtn.disabled = false;
+            skipPauseBtn.textContent = 'Пропустить';
             summaryHeader.textContent = `Итоги раунда: ${data.clubName}`;
             summaryScoreDisplay.textContent = `${data.players[0].nickname} ${data.scores[0]} : ${data.scores[1]} ${data.players[1].nickname}`;
             summaryHumanNameHeader.textContent = data.players[0].nickname;
@@ -436,6 +475,7 @@
 
             let countdown = 10;
             summaryCountdown.textContent = countdown;
+            clearInterval(summaryInterval);
             summaryInterval = setInterval(() => {
                 countdown--;
                 summaryCountdown.textContent = countdown >= 0 ? countdown : 0;
@@ -462,6 +502,31 @@
                 ratingChangesDisplay.classList.remove('hidden');
             } else {
                 ratingChangesDisplay.classList.add('hidden');
+            }
+
+            const tableHead = gameHistoryTable.querySelector('thead');
+            const tableBody = gameHistoryTable.querySelector('tbody');
+            tableHead.innerHTML = `<tr><th>Клуб</th><th>${player1Name}</th><th>${player2Name}</th><th>Победитель</th></tr>`;
+            tableBody.innerHTML = '';
+            if (data.history && data.history.length > 0) {
+                gameHistoryContainer.classList.remove('hidden');
+                data.history.forEach(round => {
+                    const row = document.createElement('tr');
+                    let p1_score_html = round.p1_named;
+                    let p2_score_html = round.p2_named;
+                    let winner_name = 'Ничья';
+                    if (round.p1_named > round.p2_named) {
+                        p1_score_html = `<b>${round.p1_named}</b>`;
+                        winner_name = player1Name;
+                    } else if (round.p2_named > round.p1_named) {
+                        p2_score_html = `<b>${round.p2_named}</b>`;
+                        winner_name = player2Name;
+                    }
+                    row.innerHTML = `<td>${round.club_name}</td><td>${p1_score_html}</td><td>${p2_score_html}</td><td>${winner_name}</td>`;
+                    tableBody.appendChild(row);
+                });
+            } else {
+                gameHistoryContainer.classList.add('hidden');
             }
         });
 

@@ -61,6 +61,12 @@ def update_ratings(winner_user, loser_user):
         db.session.commit()
         print(f"[RATING] Рейтинги обновлены: {winner_user.nickname} ({int(winner_user.rating)}), {loser_user.nickname} ({int(loser_user.rating)})")
 
+def get_leaderboard_data():
+    """Вспомогательная функция для получения данных рейтинга."""
+    with app.app_context():
+        users = User.query.filter(User.nickname != 'Робо-Квинси').order_by(User.rating.desc()).all()
+        return [{'nickname': user.nickname, 'rating': int(user.rating)} for user in users]
+
 def load_player_data(filename):
     clubs_data = {}
     with open(filename, mode='r', encoding='utf-8') as infile:
@@ -204,6 +210,8 @@ def start_game_loop(room_id):
             if game.scores[0] > game.scores[1]: update_ratings(winner_user=player1, loser_user=player2)
             elif game.scores[1] > game.scores[0]: update_ratings(winner_user=player2, loser_user=player1)
             game_over_data['rating_changes'] = { 'p1': {'old': p1_old_rating, 'new': int(player1.rating)}, 'p2': {'old': p2_old_rating, 'new': int(player2.rating)} }
+            # Рассылаем всем обновленный рейтинг
+            socketio.emit('leaderboard_data', get_leaderboard_data())
         socketio.emit('game_over', game_over_data, room=room_id)
         if room_id in active_games: del active_games[room_id]
         return
@@ -234,7 +242,7 @@ def pause_watcher(room_id, pause_id):
         print(f"[GAME] Комната {room_id}: пауза окончена, запуск следующего раунда.")
         start_game_loop(room_id)
 
-def get_lobby_data():
+def get_lobby_data_list():
     lobby_list = []
     with app.app_context():
         for room_id, game_info in open_games.items():
@@ -251,7 +259,7 @@ def get_lobby_data():
 @socketio.on('connect')
 def handle_connect():
     print(f"[CONNECTION] Клиент подключился: {request.sid}")
-    emit('update_lobby', get_lobby_data())
+    emit('update_lobby', get_lobby_data_list())
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -264,7 +272,7 @@ def handle_disconnect():
     if room_to_delete:
         del open_games[room_to_delete]
         print(f"[LOBBY] Создатель комнаты {room_to_delete} отключился. Комната удалена.")
-        socketio.emit('update_lobby', get_lobby_data())
+        socketio.emit('update_lobby', get_lobby_data_list())
 
 
 @socketio.on('request_skip_pause')
@@ -291,10 +299,7 @@ def handle_request_skip_pause(data):
 
 @socketio.on('get_leaderboard')
 def handle_get_leaderboard():
-    with app.app_context():
-        users = User.query.filter(User.nickname != 'Робо-Квинси').order_by(User.rating.desc()).all()
-        leaderboard_data = [{'nickname': user.nickname, 'rating': int(user.rating)} for user in users]
-        emit('leaderboard_data', leaderboard_data)
+    emit('leaderboard_data', get_leaderboard_data())
 
 @socketio.on('register_user')
 def handle_register_user(data):
@@ -375,7 +380,7 @@ def handle_create_game(data):
         'settings': settings
     }
     print(f"[LOBBY] Игрок {nickname} создал комнату {room_id} и присоединился к ней. Настройки: {settings}")
-    socketio.emit('update_lobby', get_lobby_data())
+    socketio.emit('update_lobby', get_lobby_data_list())
 
 @socketio.on('cancel_game')
 def handle_cancel_game():
@@ -390,7 +395,7 @@ def handle_cancel_game():
         leave_room(room_to_delete)
         del open_games[room_to_delete]
         print(f"[LOBBY] Создатель {sid} отменил свою игру. Комната {room_to_delete} удалена.")
-        socketio.emit('update_lobby', get_lobby_data())
+        socketio.emit('update_lobby', get_lobby_data_list())
 
 
 @socketio.on('join_game')
@@ -411,14 +416,14 @@ def handle_join_game(data):
         return
         
     open_games.pop(room_id_to_join)
-    socketio.emit('update_lobby', get_lobby_data())
+    socketio.emit('update_lobby', get_lobby_data_list())
 
     creator_info = game_to_join['creator']
     
     if creator_info['sid'] == request.sid:
         print(f"[LOBBY] Игрок {joiner_nickname} попытался присоединиться к своей же игре. Отклонено.")
         open_games[room_id_to_join] = game_to_join
-        socketio.emit('update_lobby', get_lobby_data())
+        socketio.emit('update_lobby', get_lobby_data_list())
         return
 
     with app.app_context():
@@ -463,12 +468,18 @@ def handle_submit_guess(data):
             if game.mode != 'solo': game.scores[0] += 0.5; game.scores[1] += 0.5
             show_round_summary_and_schedule_next(room_id)
         else:
-            if game.mode == 'solo': start_next_human_turn(room_id)
-            elif game.mode == 'vs_bot': socketio.start_background_task(bot_turn, room_id)
-            elif game.mode == 'pvp': start_next_human_turn(room_id)
+            # Не переключаем ход для solo-режима
+            if game.mode == 'solo':
+                start_next_human_turn(room_id) # Ход остается у того же игрока
+            elif game.mode == 'vs_bot':
+                socketio.start_background_task(bot_turn, room_id)
+            elif game.mode == 'pvp':
+                start_next_human_turn(room_id)
     else:
+        # Для остальных результатов (not_found, already_named)
         print(f" -> Ответ неверный (причина: {result['result']})")
         emit('guess_result', {'result': result['result']})
+
 
 @socketio.on('surrender_round')
 def handle_surrender(data):
