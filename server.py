@@ -270,20 +270,25 @@ def handle_check_status(data):
     if not nickname:
         emit('status_ok', {'needs_registration': True})
         return
+
+    # Ищем, не находится ли игрок в активной игре
     for room_id, game_session in active_games.items():
         game = game_session['game']
         for index, player in game.players.items():
             if player['nickname'] == nickname:
                 print(f"[STATUS] Игрок {nickname} найден в активной игре {room_id}. Восстанавливаем сессию.")
-                player['sid'] = sid
+                player['sid'] = sid # Обновляем SID
                 join_room(room_id)
                 emit('reconnect_to_game', get_game_state_for_client(game, room_id))
                 return
+
+    # Чистим за ним старые комнаты в лобби
     stale_room_sid = next((creator_sid for creator_sid, info in open_games.items() if info['creator']['nickname'] == nickname), None)
     if stale_room_sid:
         del open_games[stale_room_sid]
         print(f"[LOBBY] Удалена старая комната игрока {nickname}.")
         socketio.emit('update_lobby', get_lobby_data())
+    
     emit('status_ok', {'needs_registration': False})
 
 @socketio.on('cancel_pvp_search')
