@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -20,6 +19,11 @@
         .error-message { color: #dc3545; }
         .auth-toggle { font-size: 0.9em; color: #007bff; cursor: pointer; text-decoration: underline; margin-top: 15px; }
         .lobby-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        /* Стили для лобби */
+        .open-game-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border: 1px solid #eee; border-radius: 8px; margin-bottom: 8px; }
+        .open-game-item .info { text-align: left; }
+        .open-game-item .info .creator { font-weight: bold; }
+        .open-game-item .info .details { font-size: 0.9em; color: #666; }
     </style>
 </head>
 <body>
@@ -27,8 +31,8 @@
         <div id="login-form-container">
             <h1>Вход</h1>
             <form id="login-form">
-                <input type="text" id="login-nickname" placeholder="Никнейм" autocomplete="off">
-                <input type="password" id="login-password" placeholder="Пароль">
+                <input type="text" id="login-nickname" placeholder="Никнейм" autocomplete="username">
+                <input type="password" id="login-password" placeholder="Пароль" autocomplete="current-password">
                 <button type="submit">Войти</button>
             </form>
             <div id="login-status" class="error-message"></div>
@@ -37,8 +41,8 @@
         <div id="register-form-container" class="hidden">
             <h1>Регистрация</h1>
             <form id="register-form">
-                <input type="text" id="register-nickname" placeholder="Придумайте никнейм" autocomplete="off">
-                <input type="password" id="register-password" placeholder="Придумайте пароль">
+                <input type="text" id="register-nickname" placeholder="Придумайте никнейм" autocomplete="nickname">
+                <input type="password" id="register-password" placeholder="Придумайте пароль" autocomplete="new-password">
                 <button type="submit">Создать аккаунт</button>
             </form>
             <div id="register-status" class="error-message"></div>
@@ -67,98 +71,69 @@
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         const socket = io();
-        const screens = { registration: document.getElementById('registration-screen'), lobby: document.getElementById('lobby-screen'), config: document.getElementById('config-screen'), leaderboard: document.getElementById('leaderboard-screen'), game: document.getElementById('game-screen'), summary: document.getElementById('summary-screen'), gameOver: document.getElementById('game-over-screen') };
-        let currentUserNickname = null, clientState = {}, timerInterval;
-        const registrationForm = document.getElementById('registration-form'), nicknameInput = document.getElementById('nickname-input'), registrationStatus = document.getElementById('registration-status');
-        const welcomeNickname = document.getElementById('welcome-nickname'), soloBtn = document.getElementById('solo-btn'), vsBotBtn = document.getElementById('vs-bot-btn'), createGameBtn = document.getElementById('create-game-btn'), openGamesList = document.getElementById('open-games-list');
-        const configFormElements = { min: document.getElementById('config-time-min'), sec: document.getElementById('config-time-sec'), rounds: document.getElementById('config-rounds') };
-        const backToLobbyBtn = document.getElementById('back-to-lobby-btn'), submitCreateGameBtn = document.getElementById('submit-create-game-btn');
-        const leaderboardBtn = document.getElementById('leaderboard-btn'), backToMenuBtn = document.getElementById('back-to-menu-btn'), leaderboardBody = document.getElementById('leaderboard-body');
-        const gameHeader = document.getElementById('gameHeader'), scoreDisplay = document.getElementById('score-display'), gameStatus = document.getElementById('game-status'), guessForm = document.getElementById('guess-form'), guessInput = document.getElementById('guess-input'), liveNamedList = document.getElementById('live-named-list'), surrenderBtn = document.getElementById('surrender-btn'), submitGuessBtn = document.getElementById('submit-guess-btn');
-        const myTimerBox = document.getElementById('my-timer-box'), myTimerNickname = document.getElementById('my-timer-nickname'), myTimerValue = document.getElementById('my-timer-value');
-        const opponentTimerBox = document.getElementById('opponent-timer-box'), opponentTimerNickname = document.getElementById('opponent-timer-nickname'), opponentTimerValue = document.getElementById('opponent-timer-value');
-        const summaryHeader = document.getElementById('summaryHeader'), summaryScoreDisplay = document.getElementById('summary-score-display'), summaryHumanColumn = document.getElementById('summary-human-column'), summaryBotColumn = document.getElementById('summary-bot-column'), summaryHumanNameHeader = document.getElementById('summary-human-name-header'), summaryBotNameHeader = document.getElementById('summary-bot-name-header'), summaryHumanNamedList = document.getElementById('summary-human-named-list'), summaryBotNamedList = document.getElementById('summary-bot-named-list'), summaryRemainingList = document.getElementById('summary-remaining-list'), summaryCountdown = document.getElementById('summary-countdown'), skipPauseBtn = document.getElementById('skip-pause-btn');
-        const gameOverTitle = document.getElementById('game-over-title'), earlyEndExplanation = document.getElementById('early-end-explanation'), finalScoreDisplay = document.getElementById('final-score-display'), ratingChangesDisplay = document.getElementById('rating-changes-display'), gameHistoryTable = document.getElementById('game-history-table'), backToMenuFromGameOverBtn = document.getElementById('back-to-menu-from-game-over');
         
-        let isMyTurn = false;
+        // --- DOM Элементы ---
+        const authScreen = document.getElementById('auth-screen');
+        const lobbyScreen = document.getElementById('lobby-screen');
+        
+        // Экраны
+        const screens = {
+            auth: document.getElementById('auth-screen'),
+            lobby: document.getElementById('lobby-screen'),
+            // Добавьте сюда другие экраны по мере необходимости
+            config: document.getElementById('config-screen'),
+            leaderboard: document.getElementById('leaderboard-screen'),
+            game: document.getElementById('game-screen'),
+        };
 
-        function showScreen(screenName) { Object.values(screens).forEach(screen => screen.classList.add('hidden')); if (screens[screenName]) screens[screenName].classList.remove('hidden'); }
-        function formatTime(seconds) { if (seconds < 0) seconds = 0; const mins = Math.floor(seconds / 60); const secs = Math.floor(seconds % 60); return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`; }
-        function updateGameUI(state) {
-            clientState = state;
-            let myPlayerIndex = -1;
-            for (const i in state.players) { if (state.players[i].sid === socket.id) { myPlayerIndex = parseInt(i, 10); break; } }
-            if (myPlayerIndex === -1 && state.mode === 'solo') myPlayerIndex = 0;
-            if (myPlayerIndex === -1 && state.mode !== 'solo') return; 
-            const opponentPlayerIndex = 1 - myPlayerIndex;
-            const activePlayerIndex = state.currentPlayerIndex;
-            isMyTurn = (myPlayerIndex === activePlayerIndex);
-            gameHeader.textContent = `Тур ${state.round}/${state.totalRounds}: ${state.clubName}`;
-            if (state.mode === 'solo' || !state.players[1]) {
-                scoreDisplay.classList.add('hidden');
-                opponentTimerBox.classList.add('hidden');
-                myTimerNickname.textContent = state.players[0].nickname;
-            } else {
-                scoreDisplay.classList.remove('hidden');
-                opponentTimerBox.classList.remove('hidden');
-                scoreDisplay.textContent = `${state.players[0].nickname} ${state.scores[0]} : ${state.scores[1]} ${state.players[1].nickname}`;
-                myTimerNickname.textContent = state.players[myPlayerIndex].nickname + ' (Вы)';
-                opponentTimerNickname.textContent = state.players[opponentPlayerIndex].nickname;
-            }
-            submitGuessBtn.disabled = !isMyTurn;
-            surrenderBtn.disabled = !isMyTurn;
-            guessInput.placeholder = isMyTurn ? 'Введите фамилию...' : 'Ход соперника...';
-            gameStatus.textContent = isMyTurn ? 'Ваш ход...' : `Ожидаем ход игрока ${state.players[activePlayerIndex].nickname}...`;
-            if(isMyTurn) {
-                surrenderBtn.classList.remove('btn-secondary');
-                surrenderBtn.classList.add('btn-danger');
-                guessInput.focus();
-            } else {
-                surrenderBtn.classList.remove('btn-danger');
-                surrenderBtn.classList.add('btn-secondary');
-            }
-            liveNamedList.innerHTML = '';
-            state.namedPlayers.forEach(player => {
-                const pDiv = document.createElement('div'); pDiv.className = 'player-name';
-                const author = (state.mode !== 'solo' && state.players[1]) ? (player.by === 0 ? state.players[0].nickname : state.players[1].nickname) : '';
-                pDiv.textContent = author ? `${player.name} (${author})` : player.name;
-                liveNamedList.prepend(pDiv);
-            });
-            clearInterval(timerInterval);
-            let timeBanks = {...state.timeBanks};
-            timerValues[myPlayerIndex].textContent = formatTime(timeBanks[myPlayerIndex]);
-            if (opponentPlayerIndex in timeBanks && timeBanks[opponentPlayerIndex] !== undefined) {
-                timerValues[opponentPlayerIndex].textContent = formatTime(timeBanks[opponentPlayerIndex]);
-            }
-            myTimerBox.classList.remove('active-turn');
-            opponentTimerBox.classList.remove('active-turn');
-            if (activePlayerIndex === myPlayerIndex) myTimerBox.classList.add('active-turn');
-            else opponentTimerBox.classList.add('active-turn');
-            timerInterval = setInterval(() => {
-                timeBanks[activePlayerIndex] -= 0.05;
-                const activeTimerDisplay = (activePlayerIndex === myPlayerIndex) ? myTimerValue : opponentTimerValue;
-                activeTimerDisplay.textContent = formatTime(timeBanks[activePlayerIndex]);
-                if (timeBanks[activePlayerIndex] <= 10) { activeTimerDisplay.style.color = '#dc3545'; } 
-                else { activeTimerDisplay.style.color = '#333'; }
-                if (timeBanks[activePlayerIndex] <= 0) clearInterval(timerInterval);
-            }, 50);
-        }
-        
-        function startGame(mode) { if (!currentUserNickname) return; socket.emit('start_game', { mode: mode, nickname: currentUserNickname }); }
-                const loginForm = document.getElementById('login-form'), loginNickname = document.getElementById('login-nickname'), loginPassword = document.getElementById('login-password'), loginStatus = document.getElementById('login-status');
-        const registerForm = document.getElementById('register-form'), registerNickname = document.getElementById('register-nickname'), registerPassword = document.getElementById('register-password'), registerStatus = document.getElementById('register-status');
-        const showRegisterFormBtn = document.getElementById('show-register-form'), showLoginFormBtn = document.getElementById('show-login-form');
+        // Формы аутентификации
+        const loginFormContainer = document.getElementById('login-form-container');
+        const registerFormContainer = document.getElementById('register-form-container');
+        const loginForm = document.getElementById('login-form');
+        const registerForm = document.getElementById('register-form');
+        const loginNickname = document.getElementById('login-nickname');
+        const loginPassword = document.getElementById('login-password');
+        const loginStatus = document.getElementById('login-status');
+        const registerNickname = document.getElementById('register-nickname');
+        const registerPassword = document.getElementById('register-password');
+        const registerStatus = document.getElementById('register-status');
+        const showRegisterFormBtn = document.getElementById('show-register-form');
+        const showLoginFormBtn = document.getElementById('show-login-form');
+
+        // Лобби
+        const welcomeNickname = document.getElementById('welcome-nickname');
         const logoutBtn = document.getElementById('logout-btn');
+        const createGameBtn = document.getElementById('create-game-btn');
+        const leaderboardBtn = document.getElementById('leaderboard-btn');
+        const openGamesList = document.getElementById('open-games-list');
+        const soloBtn = document.getElementById('solo-btn');
+        const vsBotBtn = document.getElementById('vs-bot-btn');
 
+        let currentUserNickname = null;
+
+        // --- Функции ---
+        function showScreen(screenName) {
+            Object.values(screens).forEach(screen => {
+                if (screen) screen.classList.add('hidden');
+            });
+            if (screens[screenName]) {
+                screens[screenName].classList.remove('hidden');
+            }
+        }
+
+        // --- Обработчики событий ---
+
+        // Переключение между формами входа и регистрации
         showRegisterFormBtn.addEventListener('click', () => {
-            document.getElementById('login-form-container').classList.add('hidden');
-            document.getElementById('register-form-container').classList.remove('hidden');
+            loginFormContainer.classList.add('hidden');
+            registerFormContainer.classList.remove('hidden');
         });
         showLoginFormBtn.addEventListener('click', () => {
-            document.getElementById('register-form-container').classList.add('hidden');
-            document.getElementById('login-form-container').classList.remove('hidden');
+            registerFormContainer.classList.add('hidden');
+            loginFormContainer.classList.remove('hidden');
         });
 
+        // Отправка формы логина
         loginForm.addEventListener('submit', (e) => {
             e.preventDefault();
             const nickname = loginNickname.value.trim();
@@ -167,6 +142,7 @@
             socket.emit('login_user', { nickname, password });
         });
 
+        // Отправка формы регистрации
         registerForm.addEventListener('submit', (e) => {
             e.preventDefault();
             const nickname = registerNickname.value.trim();
@@ -175,201 +151,54 @@
             socket.emit('register_user', { nickname, password });
         });
 
+        // Выход из аккаунта
         logoutBtn.addEventListener('click', () => {
             currentUserNickname = null;
             localStorage.removeItem('rpl_quiz_nickname');
+            
+            loginNickname.value = '';
+            loginPassword.value = '';
+            registerNickname.value = '';
+            registerPassword.value = '';
+            loginStatus.textContent = '';
+            registerStatus.textContent = '';
+
             showScreen('auth');
-            // Очищаем поля форм для безопасности
-            loginNickname.value = ''; loginPassword.value = '';
-            registerNickname.value = ''; registerPassword.value = '';
-            loginStatus.textContent = ''; registerStatus.textContent = '';
+        });
+        
+        // Присоединение к игре из лобби
+        openGamesList.addEventListener('click', (e) => {
+            if (e.target.classList.contains('play-btn')) {
+                const creatorSid = e.target.dataset.creatorSid;
+                if (currentUserNickname) {
+                    socket.emit('join_game', { creator_sid: creatorSid, nickname: currentUserNickname });
+                } else {
+                    alert("Ошибка: не удалось определить вашего пользователя. Попробуйте перезайти.");
+                }
+            }
         });
 
+        // --- Обработчики Socket.IO ---
+
+        // Ответ от сервера на попытку входа/регистрации
         socket.on('auth_status', (data) => {
-            const statusDiv = document.getElementById(`${data.form || 'login'}-status`);
+            const statusDiv = document.getElementById(`${data.form}-status`);
             if (data.success) {
                 currentUserNickname = data.nickname;
                 localStorage.setItem('rpl_quiz_nickname', currentUserNickname);
                 welcomeNickname.textContent = currentUserNickname;
                 showScreen('lobby');
             } else {
-                if (statusDiv) statusDiv.textContent = data.message;
+                if (statusDiv) {
+                    statusDiv.textContent = data.message;
+                }
             }
         });
         
-        window.addEventListener('load', () => {
-            const savedNickname = localStorage.getItem('rpl_quiz_nickname');
-            if (savedNickname) {
-                currentUserNickname = savedNickname;
-                welcomeNickname.textContent = currentUserNickname;
-                showScreen('lobby');
-            } else {
-                showScreen('auth');
-            }
-        });
-        window.addEventListener('load', () => {
-            const savedNickname = localStorage.getItem('rpl_quiz_nickname');
-            socket.emit('check_status', { nickname: savedNickname });
-        });
-        registrationForm.addEventListener('submit', (e) => { e.preventDefault(); const nickname = nicknameInput.value.trim(); registrationStatus.textContent = "Проверяем..."; registrationStatus.className = ''; socket.emit('register_user', { nickname: nickname }); });
-        soloBtn.addEventListener('click', () => startGame('solo'));
-        vsBotBtn.addEventListener('click', () => startGame('vs_bot'));
-        createGameBtn.addEventListener('click', () => showScreen('config'));
-        leaderboardBtn.addEventListener('click', () => socket.emit('get_leaderboard'));
-        backToMenuBtn.addEventListener('click', () => showScreen('lobby'));
-        backToLobbyBtn.addEventListener('click', () => showScreen('lobby'));
-        submitCreateGameBtn.addEventListener('click', () => {
-            const settings = {
-                time_bank: parseInt(configFormElements.min.value) * 60 + parseInt(configFormElements.sec.value),
-                num_rounds: parseInt(configFormElements.rounds.value)
-            };
-            socket.emit('create_game', { nickname: currentUserNickname, settings: settings });
-            showScreen('lobby');
-        });
-        openGamesList.addEventListener('click', (e) => {
-            if (e.target.classList.contains('play-btn')) {
-                const creatorSid = e.target.dataset.creatorSid;
-                socket.emit('join_game', { creator_sid: creatorSid, nickname: currentUserNickname });
-            }
-        });
-        guessForm.addEventListener('submit', (e) => { e.preventDefault(); if (isMyTurn) { const guess = guessInput.value; if (guess) { socket.emit('submit_guess', { roomId: clientState.roomId, guess: guess }); guessInput.value = ''; } } });
-        surrenderBtn.addEventListener('click', () => { if (surrenderBtn.disabled) return; gameStatus.textContent = "Вы сдались..."; guessInput.disabled = true; surrenderBtn.disabled = true; socket.emit('surrender_round', { roomId: clientState.roomId }); });
-        backToMenuFromGameOverBtn.addEventListener('click', () => showScreen('lobby'));
-        skipPauseBtn.addEventListener('click', () => {
-            skipPauseBtn.disabled = true;
-            if (clientState.mode === 'pvp') { skipPauseBtn.textContent = 'Ожидаем второго...'; }
-            socket.emit('request_skip_pause', { roomId: clientState.roomId });
-        });
-        backToLobbyFromDisconnectBtn.addEventListener('click', () => {
-            disconnectionModal.classList.add('hidden');
-            showScreen('lobby');
-        });
-
-        socket.on('status_ok', (data) => {
-            if (data.needs_registration) {
-                showScreen('registration');
-            } else {
-                currentUserNickname = localStorage.getItem('rpl_quiz_nickname');
-                welcomeNickname.textContent = currentUserNickname;
-                showScreen('lobby');
-                socket.emit('update_lobby_request');
-            }
-        });
-        socket.on('reconnect_to_game', (state) => {
-            console.log("Reconnecting to game:", state);
-            showScreen('game');
-            updateGameUI(state);
-        });
-        socket.on('registration_status', (data) => { if (data.success) { currentUserNickname = data.nickname; localStorage.setItem('rpl_quiz_nickname', currentUserNickname); welcomeNickname.textContent = currentUserNickname; showScreen('lobby'); } else { registrationStatus.textContent = data.message; registrationStatus.className = 'error-message'; } });
-        socket.on('leaderboard_data', (data) => {
-            leaderboardBody.innerHTML = '';
-            data.forEach((user, index) => { const row = document.createElement('tr'); row.innerHTML = `<td>${index + 1}</td><td>${user.nickname}</td><td>${user.rating}</td>`; leaderboardBody.appendChild(row); });
-            showScreen('leaderboard');
-        });
-        socket.on('round_started', (state) => { showScreen('game'); updateGameUI(state); });
-        socket.on('turn_updated', (state) => { updateGameUI(state); });
-        socket.on('guess_result', (data) => {
-            if (data.result === 'correct') gameStatus.textContent = '✅ Верно!';
-            else if (data.result === 'correct_typo') gameStatus.textContent = `✅ Верно! (Засчитано как: ${data.corrected_name})`;
-            else if (data.result === 'already_named') gameStatus.textContent = 'Такого уже называли!';
-            else gameStatus.textContent = '❌ Неверно!';
-        });
-        socket.on('bot_guessed', (data) => { gameStatus.textContent = `Бот назвал: ${data.guess}`; });
-        socket.on('timer_expired', (data) => {
-            clearInterval(timerInterval);
-            if (timerValues[data.playerIndex]) {
-                timerValues[data.playerIndex].textContent = formatTime(0);
-                timerValues[data.playerIndex].style.color = '#dc3545';
-            }
-            gameStatus.textContent = '⏱️ Время вышло!';
-            guessInput.disabled = true;
-            submitGuessBtn.disabled = true;
-            surrenderBtn.disabled = true;
-        });
-        socket.on('round_summary', (data) => {
-            showScreen('summary');
-            if (data.mode === 'solo' || data.mode === 'vs_bot' || data.mode === 'pvp') { skipPauseBtn.classList.remove('hidden'); skipPauseBtn.disabled = false; skipPauseBtn.textContent = 'Пропустить'; } 
-            else { skipPauseBtn.classList.add('hidden'); }
-            summaryHeader.textContent = `Итоги раунда: ${data.clubName}`;
-            if (data.mode === 'solo') {
-                summaryScoreDisplay.classList.add('hidden');
-                summaryBotColumn.classList.add('hidden');
-                summaryHumanNameHeader.textContent = "Названные игроки";
-            } else {
-                summaryScoreDisplay.classList.remove('hidden');
-                summaryBotColumn.classList.remove('hidden');
-                summaryHumanNameHeader.textContent = data.players[0].nickname;
-                summaryBotNameHeader.textContent = data.players[1].nickname;
-                summaryScoreDisplay.textContent = `${data.players[0].nickname} ${data.scores[0]} : ${data.scores[1]} ${data.players[1].nickname}`;
-            }
-            summaryHumanNamedList.innerHTML = ''; summaryBotNamedList.innerHTML = ''; summaryRemainingList.innerHTML = '';
-            const allNamedPlayerNames = new Set(data.namedPlayers.map(p => p.name));
-            data.namedPlayers.forEach(player => {
-                const pDiv = document.createElement('div'); pDiv.className = 'player-name'; pDiv.textContent = player.name;
-                if (player.by === 0) summaryHumanNamedList.appendChild(pDiv); else summaryBotNamedList.appendChild(pDiv);
-            });
-            data.fullPlayerList.forEach(playerName => {
-                if (!allNamedPlayerNames.has(playerName)) {
-                    const pDiv = document.createElement('div'); pDiv.className = 'player-name'; pDiv.textContent = playerName;
-                    summaryRemainingList.appendChild(pDiv);
-                }
-            });
-            let countdown = 10;
-            summaryCountdown.textContent = countdown;
-            let summaryInterval = setInterval(() => {
-                countdown--;
-                summaryCountdown.textContent = countdown >= 0 ? countdown : 0;
-                if (countdown < 0) clearInterval(summaryInterval);
-            }, 1000);
-        });
-        socket.on('skip_vote_accepted', () => { skipPauseBtn.textContent = '✓ Ждем второго...'; });
-        socket.on('skip_vote_update', (data) => { if (clientState.mode === 'pvp') { skipPauseBtn.textContent = `Пропустить (${data.count}/2)`; } });
-        socket.on('game_over', (data) => {
-            showScreen('gameOver');
-            const player1Name = data.players[0].nickname;
-            const player2Name = (data.players[1]) ? data.players[1].nickname : 'Бот';
-            if (data.final_scores[0] > data.final_scores[1]) { gameOverTitle.textContent = `🏆 Победил ${player1Name}!`; } 
-            else if (data.final_scores[1] > data.final_scores[0]) { gameOverTitle.textContent = `🏆 Победил ${player2Name}!`; } 
-            else { gameOverTitle.textContent = "🤝 Ничья!"; }
-            if (data.end_reason === 'unreachable_score') { earlyEndExplanation.textContent = 'Игра завершена досрочно, так как разница в счете стала больше, чем количество оставшихся раундов.'; earlyEndExplanation.classList.remove('hidden'); } 
-            else { earlyEndExplanation.classList.add('hidden'); }
-            finalScoreDisplay.textContent = `${player1Name} ${data.final_scores[0]} : ${data.final_scores[1]} ${player2Name}`;
-            if (data.mode === 'pvp' && data.rating_changes) {
-                const p1_change = data.rating_changes.p1.new - data.rating_changes.p1.old;
-                const p2_change = data.rating_changes.p2.new - data.rating_changes.p2.old;
-                const p1_sign = p1_change >= 0 ? '+' : ''; const p2_sign = p2_change >= 0 ? '+' : '';
-                ratingChangesDisplay.innerHTML = `<div class="rating-change">${player1Name}: ${data.rating_changes.p1.old} → ${data.rating_changes.p1.new} (<span class="${p1_change >= 0 ? 'rating-positive' : 'rating-negative'}">${p1_sign}${p1_change}</span>)</div><div class="rating-change">${player2Name}: ${data.rating_changes.p2.old} → ${data.rating_changes.p2.new} (<span class="${p2_change >= 0 ? 'rating-positive' : 'rating-negative'}">${p2_sign}${p2_change}</span>)</div>`;
-                ratingChangesDisplay.classList.remove('hidden');
-            } else {
-                ratingChangesDisplay.classList.add('hidden');
-            }
-            const tableHead = gameHistoryTable.querySelector('thead');
-            const tableBody = gameHistoryTable.querySelector('tbody');
-            tableBody.innerHTML = '';
-            if (data.mode === 'solo') {
-                tableHead.innerHTML = `<tr><th>Клуб</th><th>Названо</th><th>Итог</th></tr>`;
-                data.history.forEach(round => {
-                    const row = document.createElement('tr');
-                    const resultIcon = round.result_type === 'completed' ? '✓' : '⏱️';
-                    row.innerHTML = `<td>${round.club_name}</td><td>${round.p1_named}</td><td>${resultIcon}</td>`;
-                    tableBody.appendChild(row);
-                });
-            } else {
-                tableHead.innerHTML = `<tr><th>Клуб</th><th>${player1Name}</th><th>${player2Name}</th><th>Итог</th></tr>`;
-                data.history.forEach(round => {
-                    const row = document.createElement('tr');
-                    let p1_score = round.p1_named, p2_score = round.p2_named;
-                    if (p1_score > p2_score) p1_score = `<b>${p1_score}</b>`;
-                    if (p2_score > p1_score) p2_score = `<b>${p2_score}</b>`;
-                    const resultIcon = round.result_type === 'completed' ? '✓' : '⏱️';
-                    row.innerHTML = `<td>${round.club_name}</td><td>${p1_score}</td><td>${p2_score}</td><td>${resultIcon}</td>`;
-                    tableBody.appendChild(row);
-                });
-            }
-        });
+        // Обновление списка открытых игр в лобби
         socket.on('update_lobby', (data) => {
             openGamesList.innerHTML = '';
-            if (data.length === 0) {
+            if (!data || data.length === 0) {
                 openGamesList.innerHTML = '<p>Нет открытых игр. Создайте свою!</p>';
                 return;
             }
@@ -381,17 +210,27 @@
                 gameItem.innerHTML = `
                     <div class="info">
                         <span class="creator">${game.creator_nickname} (${game.creator_rating})</span>
-                        <span class="details">РПЛ, ${game.settings.num_rounds} раундов, ${time_str}</span>
+                        <div class="details">РПЛ, ${game.settings.num_rounds} раундов, ${time_str}</div>
                     </div>
                     <button class="play-btn" data-creator-sid="${game.creator_sid}">Играть</button>
                 `;
                 openGamesList.appendChild(gameItem);
             });
         });
-        socket.on('opponent_disconnected', (data) => {
-            clearInterval(timerInterval);
-            disconnectionModal.classList.remove('hidden');
+
+        // --- Инициализация при загрузке страницы ---
+        window.addEventListener('load', () => {
+            const savedNickname = localStorage.getItem('rpl_quiz_nickname');
+            if (savedNickname) {
+                currentUserNickname = savedNickname;
+                welcomeNickname.textContent = currentUserNickname;
+                showScreen('lobby');
+                // Запрос на обновление лобби будет отправлен автоматически при 'connect'
+            } else {
+                showScreen('auth');
+            }
         });
+
     </script>
 </body>
 </html>

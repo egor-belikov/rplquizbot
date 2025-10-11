@@ -233,7 +233,8 @@ def get_lobby_data():
                     'room_id': room_id,
                     'settings': game_info['settings'],
                     'creator_nickname': creator_user.nickname,
-                    'creator_rating': int(creator_user.rating)
+                    'creator_rating': int(creator_user.rating),
+                    'creator_sid': game_info['creator']['sid'] # Добавлено для кнопки "Играть"
                 })
     return lobby_list
 
@@ -290,38 +291,38 @@ def handle_register_user(data):
     nickname = data.get('nickname')
     password = data.get('password')
     if not nickname or not password:
-        emit('auth_status', {'success': False, 'message': 'Никнейм и пароль не могут быть пустыми.'})
+        emit('auth_status', {'success': False, 'message': 'Никнейм и пароль не могут быть пустыми.', 'form': 'register'})
         return
     if len(nickname) < 3 or len(nickname) > 15:
-        emit('auth_status', {'success': False, 'message': 'Длина никнейма от 3 до 15 символов.'})
+        emit('auth_status', {'success': False, 'message': 'Длина никнейма от 3 до 15 символов.', 'form': 'register'})
         return
     if not re.match(r'^[a-zA-Z0-9а-яА-Я_-]+$', nickname):
-        emit('auth_status', {'success': False, 'message': 'Только буквы, цифры, _ и -.'})
+        emit('auth_status', {'success': False, 'message': 'Только буквы, цифры, _ и -.', 'form': 'register'})
         return
     if len(password) < 3:
-        emit('auth_status', {'success': False, 'message': 'Пароль должен быть длиннее 2 символов.'})
+        emit('auth_status', {'success': False, 'message': 'Пароль должен быть длиннее 2 символов.', 'form': 'register'})
         return
     with app.app_context():
         user_exists = User.query.filter_by(nickname=nickname).first()
         if user_exists:
-            emit('auth_status', {'success': False, 'message': 'Этот никнейм уже занят.'})
+            emit('auth_status', {'success': False, 'message': 'Этот никнейм уже занят.', 'form': 'register'})
         else:
             get_or_create_user(nickname, password)
             print(f"[AUTH] Зарегистрирован новый игрок: {nickname}")
-            emit('auth_status', {'success': True, 'nickname': nickname})
+            emit('auth_status', {'success': True, 'nickname': nickname, 'form': 'register'})
 
 @socketio.on('login_user')
 def handle_login_user(data):
     nickname = data.get('nickname')
     password = data.get('password')
     if not nickname or not password:
-        emit('auth_status', {'success': False, 'message': 'Введите никнейм и пароль.'})
+        emit('auth_status', {'success': False, 'message': 'Введите никнейм и пароль.', 'form': 'login'})
         return
     
     with app.app_context():
         user = User.query.filter_by(nickname=nickname).first()
         if not user:
-            emit('auth_status', {'success': False, 'message': 'Игрок не найден.'})
+            emit('auth_status', {'success': False, 'message': 'Игрок не найден.', 'form': 'login'})
             return
 
         # Логика миграции для старых аккаунтов
@@ -330,17 +331,17 @@ def handle_login_user(data):
                 print(f"[AUTH] Миграция старого аккаунта: {nickname}")
                 user.password_hash = generate_password_hash('123', method='pbkdf2:sha256')
                 db.session.commit()
-                emit('auth_status', {'success': True, 'nickname': nickname})
+                emit('auth_status', {'success': True, 'nickname': nickname, 'form': 'login'})
             else:
                 print(f"[AUTH] Неверный пароль (123) для старого аккаунта: {nickname}")
-                emit('auth_status', {'success': False, 'message': 'Неверный пароль.'})
+                emit('auth_status', {'success': False, 'message': 'Неверный пароль.', 'form': 'login'})
         # Стандартная проверка пароля
         elif check_password_hash(user.password_hash, password):
             print(f"[AUTH] Игрок {nickname} успешно вошел в систему.")
-            emit('auth_status', {'success': True, 'nickname': nickname})
+            emit('auth_status', {'success': True, 'nickname': nickname, 'form': 'login'})
         else:
             print(f"[AUTH] Неудачная попытка входа для игрока: {nickname}")
-            emit('auth_status', {'success': False, 'message': 'Неверный пароль.'})
+            emit('auth_status', {'success': False, 'message': 'Неверный пароль.', 'form': 'login'})
 
 @socketio.on('start_game')
 def handle_start_game(data):
@@ -377,14 +378,22 @@ def handle_create_game(data):
 
 @socketio.on('join_game')
 def handle_join_game(data):
-    room_id = data.get('room_id')
+    creator_sid = data.get('creator_sid') # Изменено с room_id на creator_sid
     joiner_nickname = data.get('nickname')
     
-    if room_id not in open_games:
-        print(f"[LOBBY] Попытка присоединиться к несуществующей комнате {room_id}. Отклонено.")
+    room_id = None
+    game_to_join = None
+    for r_id, g_info in open_games.items():
+        if g_info['creator']['sid'] == creator_sid:
+            room_id = r_id
+            game_to_join = g_info
+            break
+
+    if not room_id or not game_to_join:
+        print(f"[LOBBY] Попытка присоединиться к несуществующей или уже начатой игре. Отклонено.")
         return
         
-    game_to_join = open_games.pop(room_id)
+    open_games.pop(room_id)
     creator_info = game_to_join['creator']
     
     if creator_info['sid'] == request.sid:
@@ -483,4 +492,3 @@ if __name__ == '__main__':
     else:
         print("Сервер запускается в локальном режиме...")
         socketio.run(app, host='127.0.0.1', port=5000, debug=True)
-        # print("Сервер запускается в продакшн режиме...")
