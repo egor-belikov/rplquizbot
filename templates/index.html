@@ -290,7 +290,6 @@
         };
 
         // --- Элементы DOM (все переменные) ---
-        // ... (все переменные DOM остаются без изменений)
         const loginForm = document.getElementById('login-form'), loginNickname = document.getElementById('login-nickname'), loginPassword = document.getElementById('login-password'), loginStatus = document.getElementById('login-status');
         const registerForm = document.getElementById('register-form'), registerNickname = document.getElementById('register-nickname'), registerPassword = document.getElementById('register-password'), registerStatus = document.getElementById('register-status');
         const showRegisterFormBtn = document.getElementById('show-register-form'), showLoginFormBtn = document.getElementById('show-login-form');
@@ -521,7 +520,7 @@
                 localStorage.setItem('rpl_quiz_nickname', currentUserNickname);
                 welcomeNickname.textContent = currentUserNickname;
                 showScreen('lobby');
-                socket.emit('get_league_clubs', { league: 'РПЛ' });
+                socket.emit('get_league_clubs', { league: 'РПЛ' }); // ИСПРАВЛЕНИЕ: Запрашиваем клубы после логина
             } else { if (statusDiv) statusDiv.textContent = data.message; }
         });
 
@@ -561,6 +560,29 @@
                 configListDiv.innerHTML += itemHtml;
                 trainingListDiv.innerHTML += itemHtml;
             });
+
+            // --- НАЧАЛО ИЗМЕНЕНИЙ ---
+            // Получаем количество клубов в лиге
+            const numberOfClubs = data.clubs.length;
+
+            // Обновляем слайдер для PvP-игры
+            if (numberOfClubs > 0) {
+                configRoundsSlider.max = numberOfClubs;
+                // Устанавливаем значение по умолчанию на максимум
+                configRoundsSlider.value = numberOfClubs; 
+                configRoundsValue.textContent = numberOfClubs;
+            }
+
+            // Обновляем слайдер для тренировки
+            if (numberOfClubs > 0) {
+                trainingRoundsSlider.max = numberOfClubs;
+                // Для тренировки можно оставить значение поменьше, например 5, если клубов достаточно
+                const trainingDefaultValue = Math.min(5, numberOfClubs);
+                trainingRoundsSlider.value = trainingDefaultValue;
+                trainingRoundsValue.textContent = trainingDefaultValue;
+            }
+            // --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
         });
 
         socket.on('leaderboard_data', (data) => {

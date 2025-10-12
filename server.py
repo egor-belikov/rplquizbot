@@ -77,22 +77,34 @@ class GameState:
         if player2_info: self.players[1] = player2_info
         self.scores = {0: 0.0, 1: 0.0}
         
-        default_settings = {'num_rounds': 16, 'time_bank': 90.0, 'league': 'РПЛ'}
-        self.settings = settings or default_settings
-        
-        league = self.settings.get('league', 'РПЛ')
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+        # Сначала определяем лигу, чтобы знать, сколько в ней клубов
+        temp_settings = settings or {}
+        league = temp_settings.get('league', 'РПЛ')
         self.all_clubs_data = all_leagues.get(league, {})
-
+        
+        # Динамически задаем количество раундов по умолчанию
+        max_clubs_in_league = len(self.all_clubs_data)
+        default_settings = {
+            'num_rounds': max_clubs_in_league, 
+            'time_bank': 90.0, 
+            'league': league
+        }
+        self.settings = settings or default_settings
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+        
         # Логика выбора клубов
         selected_clubs = self.settings.get('selected_clubs')
         if selected_clubs:
             self.game_clubs = random.sample(selected_clubs, len(selected_clubs))
             self.num_rounds = len(self.game_clubs)
         else:
-            self.num_rounds = self.settings.get('num_rounds', 16)
+            # Используем num_rounds из настроек, которое по умолчанию теперь равно max_clubs_in_league
+            self.num_rounds = self.settings.get('num_rounds', max_clubs_in_league)
             available_clubs = list(self.all_clubs_data.keys())
             self.game_clubs = random.sample(available_clubs, min(self.num_rounds, len(available_clubs)))
 
+        # ... остальная часть метода без изменений
         self.current_round = -1
         self.current_player_index, self.current_club_name = 0, None
         self.players_for_comparison, self.named_players_full_names, self.named_players = [], set(), []
