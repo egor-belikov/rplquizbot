@@ -45,6 +45,14 @@ lobby_sids = set()
 
 # --- Функции ---
 
+def is_player_in_active_game(sid):
+    """Проверяет, находится ли игрок в любой активной игре."""
+    for game_session in active_games.values():
+        for player_info in game_session['game'].players.values():
+            if player_info['sid'] == sid:
+                return True
+    return False
+
 def broadcast_lobby_stats():
     """Рассылает всем статистику по лобби."""
     stats = {
@@ -194,7 +202,6 @@ class GameState:
         self.named_players.append({'full_name': player_data['full_name'], 'name': player_data['primary_name'], 'by': player_index})
         self.named_players_full_names.add(player_data['full_name'])
         self.last_successful_guesser_index = player_index
-        # ИСПРАВЛЕНИЕ: Вызываем функцию переключения хода
         if self.mode != 'solo':
             self.switch_player()
 
@@ -445,6 +452,11 @@ def handle_login_user(data):
 @socketio.on('start_game')
 def handle_start_game(data):
     sid, mode, nickname, settings = request.sid, data.get('mode'), data.get('nickname'), data.get('settings')
+    
+    if is_player_in_active_game(sid):
+        print(f"[SECURITY] Игрок {sid} уже в игре, попытка начать новую отклонена.")
+        return
+
     if mode == 'solo':
         with app.app_context():
             player_user = get_or_create_user(nickname)
@@ -452,9 +464,6 @@ def handle_start_game(data):
         room_id = str(uuid.uuid4())
         join_room(room_id)
         
-        # В режиме тренировки игрок остается в лобби
-        # remove_player_from_lobby(sid) 
-
         game = GameState(player1_info_full, all_clubs_data, mode='solo', settings=settings)
         active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
         
@@ -465,6 +474,11 @@ def handle_start_game(data):
 @socketio.on('create_game')
 def handle_create_game(data):
     sid, nickname, settings = request.sid, data.get('nickname'), data.get('settings')
+    
+    if is_player_in_active_game(sid):
+        print(f"[SECURITY] Игрок {sid} уже в игре, попытка создать новую отклонена.")
+        return
+
     if any(g['creator']['sid'] == sid for g in open_games.values()):
         print(f"[LOBBY] Игрок {nickname} уже создал игру. Отклонено.")
         return
