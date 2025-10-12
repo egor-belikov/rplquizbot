@@ -194,7 +194,13 @@ class GameState:
         self.named_players.append({'full_name': player_data['full_name'], 'name': player_data['primary_name'], 'by': player_index})
         self.named_players_full_names.add(player_data['full_name'])
         self.last_successful_guesser_index = player_index
-        if self.mode == 'pvp': self.switch_player()
+        # ИСПРАВЛЕНИЕ: Вызываем функцию переключения хода
+        if self.mode != 'solo':
+            self.switch_player()
+
+    def switch_player(self):
+        if len(self.players) > 1:
+            self.current_player_index = 1 - self.current_player_index
 
     def is_round_over(self): return len(self.named_players) == len(self.players_for_comparison)
     def is_game_over(self):
@@ -261,9 +267,8 @@ def start_game_loop(room_id):
         game_over_data = { 'final_scores': game.scores, 'players': {i: {'nickname': p['nickname']} for i, p in game.players.items()}, 'history': game.round_history, 'mode': game.mode, 'end_reason': game.end_reason }
         print(f"[GAME] Игра в комнате {room_id} окончена. Причина: {game.end_reason}, Счет: {game.scores[0]}-{game.scores[1]}")
         
-        # Возвращаем игроков в лобби
         for player_info in game.players.values():
-            if player_info['sid'] != 'BOT' and game.mode == 'pvp': # Возвращаем только PvP игроков
+            if player_info['sid'] != 'BOT' and game.mode == 'pvp':
                 add_player_to_lobby(player_info['sid'])
 
         if game.mode == 'pvp':
@@ -447,6 +452,9 @@ def handle_start_game(data):
         room_id = str(uuid.uuid4())
         join_room(room_id)
         
+        # В режиме тренировки игрок остается в лобби
+        # remove_player_from_lobby(sid) 
+
         game = GameState(player1_info_full, all_clubs_data, mode='solo', settings=settings)
         active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
         
