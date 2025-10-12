@@ -47,10 +47,8 @@ lobby_sids = set()
 
 def is_player_busy(sid):
     """Проверяет, находится ли игрок в лобби в ожидании или в активной игре."""
-    # Проверка, не создал ли игрок игру, ожидающую соперника
     if any(g['creator']['sid'] == sid for g in open_games.values()):
         return True
-    # Проверка, не находится ли игрок в уже идущей игре
     if any(p['sid'] == sid for g in active_games.values() for p in g['game'].players.values()):
         return True
     return False
@@ -95,7 +93,7 @@ def update_ratings(winner_user_obj, loser_user_obj):
         loser_player.update_player([winner_player.rating], [winner_player.rd], [0])
         
         winner_user.rating, winner_user.rd, winner_user.vol = winner_player.rating, winner_player.rd, winner_player.vol
-        loser_user.rating, loser_user.rd, loser_user.vol = loser_player.rating, loser_player.rd, loser_player.vol
+        loser_user.rating, loser_user.rd, loser_user.vol = loser_player.rating, loser_player.rd, loser_user.vol
         
         db.session.commit()
         print(f"[RATING] Рейтинги обновлены и сохранены в БД: {winner_user.nickname} ({int(winner_user.rating)}), {loser_user.nickname} ({int(loser_user.rating)})")
@@ -281,26 +279,32 @@ def start_game_loop(room_id):
                 add_player_to_lobby(player_info['sid'])
 
         if game.mode == 'pvp':
-            p1_obj, p2_obj = game.players[0]['user_obj'], game.players[1]['user_obj']
-            p1_old_rating = int(p1_obj.rating)
-            p2_old_rating = int(p2_obj.rating)
-
-            if game.scores[0] > game.scores[1]: 
-                update_ratings(winner_user_obj=p1_obj, loser_user_obj=p2_obj)
-            elif game.scores[1] > game.scores[0]: 
-                update_ratings(winner_user_obj=p2_obj, loser_user_obj=p1_obj)
-
             with app.app_context():
-                updated_p1 = User.query.get(p1_obj.id)
-                updated_p2 = User.query.get(p2_obj.id)
-                p1_new_rating = int(updated_p1.rating)
-                p2_new_rating = int(updated_p2.rating)
+                p1_obj = User.query.filter_by(nickname=game.players[0]['nickname']).first()
+                p2_obj = User.query.filter_by(nickname=game.players[1]['nickname']).first()
 
-            game_over_data['rating_changes'] = {
-                'p1': {'old': p1_old_rating, 'new': p1_new_rating},
-                'p2': {'old': p2_old_rating, 'new': p2_new_rating}
-            }
-            socketio.emit('leaderboard_data', get_leaderboard_data())
+            if not p1_obj or not p2_obj:
+                print(f"[ERROR] Не удалось найти одного из игроков в БД в конце игры {room_id}. Рейтинги не будут обновлены.")
+            else:
+                p1_old_rating = int(p1_obj.rating)
+                p2_old_rating = int(p2_obj.rating)
+
+                if game.scores[0] > game.scores[1]: 
+                    update_ratings(winner_user_obj=p1_obj, loser_user_obj=p2_obj)
+                elif game.scores[1] > game.scores[0]: 
+                    update_ratings(winner_user_obj=p2_obj, loser_user_obj=p1_obj)
+
+                with app.app_context():
+                    updated_p1 = User.query.get(p1_obj.id)
+                    updated_p2 = User.query.get(p2_obj.id)
+                    p1_new_rating = int(updated_p1.rating)
+                    p2_new_rating = int(updated_p2.rating)
+
+                game_over_data['rating_changes'] = {
+                    'p1': {'old': p1_old_rating, 'new': p1_new_rating},
+                    'p2': {'old': p2_old_rating, 'new': p2_new_rating}
+                }
+                socketio.emit('leaderboard_data', get_leaderboard_data())
             
         del active_games[room_id]
         broadcast_lobby_stats()
