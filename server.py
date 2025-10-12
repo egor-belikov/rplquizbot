@@ -41,69 +41,10 @@ with app.app_context():
 
 # Глобальные переменные для отслеживания состояния
 active_games, open_games = {}, {}
-lobby_sids = set() 
+lobby_sids = set()
 
-# --- Функции ---
-
-def is_player_busy(sid):
-    """Проверяет, находится ли игрок в лобби в ожидании или в активной игре."""
-    if any(g['creator']['sid'] == sid for g in open_games.values()):
-        return True
-    if any(p['sid'] == sid for g in active_games.values() for p in g['game'].players.values()):
-        return True
-    return False
-
-def broadcast_lobby_stats():
-    """Рассылает всем статистику по лобби."""
-    stats = {
-        'online_players': len(lobby_sids),
-        'active_games': len([g for g in active_games.values() if g['game'].mode == 'pvp'])
-    }
-    socketio.emit('update_lobby_stats', stats)
-
-def add_player_to_lobby(sid):
-    """Добавляет игрока в лобби и обновляет статистику."""
-    lobby_sids.add(sid)
-    broadcast_lobby_stats()
-
-def remove_player_from_lobby(sid):
-    """Удаляет игрока из лобби и обновляет статистику."""
-    lobby_sids.discard(sid)
-    broadcast_lobby_stats()
-
-def get_or_create_user(nickname, password=None):
-    user = User.query.filter_by(nickname=nickname).first()
-    if not user and password:
-        hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
-        user = User(nickname=nickname, password_hash=hashed_password)
-        db.session.add(user)
-        db.session.commit()
-        print(f"[DB] Создан новый пользователь: {nickname}")
-    return user
-
-def update_ratings(winner_user_obj, loser_user_obj):
-    with app.app_context():
-        winner_user = db.session.merge(winner_user_obj)
-        loser_user = db.session.merge(loser_user_obj)
-
-        winner_player = Player(rating=winner_user.rating, rd=winner_user.rd, vol=winner_user.vol)
-        loser_player = Player(rating=loser_user.rating, rd=loser_user.rd, vol=loser_user.vol)
-        
-        winner_player.update_player([loser_player.rating], [loser_player.rd], [1])
-        loser_player.update_player([winner_player.rating], [winner_player.rd], [0])
-        
-        winner_user.rating, winner_user.rd, winner_user.vol = winner_player.rating, winner_player.rd, winner_player.vol
-        loser_user.rating, loser_user.rd, loser_user.vol = loser_player.rating, loser_player.rd, loser_user.vol
-        
-        db.session.commit()
-        print(f"[RATING] Рейтинги обновлены и сохранены в БД: {winner_user.nickname} ({int(winner_user.rating)}), {loser_user.nickname} ({int(loser_user.rating)})")
-
-def get_leaderboard_data():
-    with app.app_context():
-        users = User.query.filter(User.nickname != 'Робо-Квинси').order_by(User.rating.desc()).all()
-        return [{'nickname': user.nickname, 'rating': int(user.rating)} for user in users]
-
-def load_player_data(filename):
+def load_league_data(filename, league_name):
+    """Загружает данные для одной лиги."""
     clubs_data = {}
     with open(filename, mode='r', encoding='utf-8') as infile:
         reader = csv.reader(infile)
@@ -122,26 +63,38 @@ def load_player_data(filename):
             }
             if club_name not in clubs_data: clubs_data[club_name] = []
             clubs_data[club_name].append(player_object)
-    return clubs_data
+    return {league_name: clubs_data}
 
-all_clubs_data = load_player_data('players.csv')
+# Загружаем все лиги. В будущем можно будет добавить новые файлы.
+all_leagues_data = {}
+all_leagues_data.update(load_league_data('players.csv', 'РПЛ'))
+
 
 class GameState:
-    def __init__(self, player1_info, all_clubs, player2_info=None, mode='solo', settings=None):
+    def __init__(self, player1_info, all_leagues, player2_info=None, mode='solo', settings=None):
         self.mode = mode
         self.players = {0: player1_info}
         if player2_info: self.players[1] = player2_info
         self.scores = {0: 0.0, 1: 0.0}
         
-        default_settings = {'num_rounds': 16, 'time_bank': 90.0}
+        default_settings = {'num_rounds': 16, 'time_bank': 90.0, 'league': 'РПЛ'}
         self.settings = settings or default_settings
         
-        self.num_rounds = self.settings.get('num_rounds', 16)
-        available_clubs = list(all_clubs_data.keys())
-        self.game_clubs = random.sample(available_clubs, min(self.num_rounds, len(available_clubs)))
+        league = self.settings.get('league', 'РПЛ')
+        self.all_clubs_data = all_leagues.get(league, {})
 
-        self.all_clubs_data = all_clubs_data
-        self.current_round, self.current_player_index, self.current_club_name = -1, 0, None
+        # Логика выбора клубов
+        selected_clubs = self.settings.get('selected_clubs')
+        if selected_clubs:
+            self.game_clubs = random.sample(selected_clubs, len(selected_clubs))
+            self.num_rounds = len(self.game_clubs)
+        else:
+            self.num_rounds = self.settings.get('num_rounds', 16)
+            available_clubs = list(self.all_clubs_data.keys())
+            self.game_clubs = random.sample(available_clubs, min(self.num_rounds, len(available_clubs)))
+
+        self.current_round = -1
+        self.current_player_index, self.current_club_name = 0, None
         self.players_for_comparison, self.named_players_full_names, self.named_players = [], set(), []
         self.round_history, self.end_reason = [], 'normal'
         self.last_successful_guesser_index, self.previous_round_loser_index = None, None
@@ -169,7 +122,7 @@ class GameState:
             self.time_banks[1] = time_bank_setting
 
         self.current_club_name = self.game_clubs[self.current_round]
-        player_objects = self.all_clubs_data[self.current_club_name]
+        player_objects = self.all_clubs_data.get(self.current_club_name, [])
         self.players_for_comparison = sorted(player_objects, key=lambda p: p['primary_name'])
         self.named_players_full_names, self.named_players = set(), []
         return True
@@ -426,6 +379,13 @@ def handle_request_skip_pause(data):
 def handle_get_leaderboard():
     emit('leaderboard_data', get_leaderboard_data())
 
+@socketio.on('get_league_clubs')
+def handle_get_league_clubs(data):
+    league_name = data.get('league', 'РПЛ')
+    league_data = all_leagues_data.get(league_name, {})
+    club_list = sorted(list(league_data.keys()))
+    emit('league_clubs_data', {'league': league_name, 'clubs': club_list})
+
 @socketio.on('register_user')
 def handle_register_user(data):
     nickname, password = data.get('nickname'), data.get('password')
@@ -470,7 +430,7 @@ def handle_start_game(data):
         room_id = str(uuid.uuid4())
         join_room(room_id)
         
-        game = GameState(player1_info_full, all_clubs_data, mode='solo', settings=settings)
+        game = GameState(player1_info_full, all_leagues_data, mode='solo', settings=settings)
         active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
         
         broadcast_lobby_stats()
@@ -534,7 +494,7 @@ def handle_join_game(data):
     remove_player_from_lobby(p1_info_full['sid'])
     remove_player_from_lobby(p2_info_full['sid'])
 
-    game = GameState(p1_info_full, all_clubs_data, player2_info=p2_info_full, mode='pvp', settings=game_to_join['settings'])
+    game = GameState(p1_info_full, all_leagues_data, player2_info=p2_info_full, mode='pvp', settings=game_to_join['settings'])
     active_games[room_id_to_join] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
     
     broadcast_lobby_stats()
@@ -590,7 +550,7 @@ def handle_surrender(data):
 def index(): return render_template('index.html')
 
 if __name__ == '__main__':
-    if not all_clubs_data: print("КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить players.csv")
+    if not all_leagues_data: print("КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить players.csv")
     else:
         print("Сервер запускается...")
         socketio.run(app, debug=True)

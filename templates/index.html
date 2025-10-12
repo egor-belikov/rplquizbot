@@ -51,6 +51,30 @@
         .player-name-list { max-height: 150px; overflow-y: auto; text-align: left;}
         .player-name-list .player-name { padding: 4px 8px; border-radius: 4px; margin-bottom: 4px; background-color: #fff; border: 1px solid #eee;}
         .main-buttons { margin-bottom: 20px; }
+        .clubs-selection-container {
+            margin-top: 15px;
+            border-top: 1px solid #eee;
+            padding-top: 15px;
+        }
+        .clubs-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: left;
+            margin-top: 10px;
+        }
+        .club-item {
+            display: block;
+            margin-bottom: 8px;
+        }
+        .club-item input {
+            margin-right: 10px;
+        }
+        .clubs-actions {
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -118,7 +142,20 @@
                 <input type="range" id="config-rounds-slider" min="3" max="16" value="16">
                 <span id="config-rounds-value">16</span>
             </div>
+            <button id="config-select-clubs-btn" class="btn-secondary" style="margin-top: 10px;">Выбрать клубы</button>
         </div>
+
+        <div id="config-clubs-selection" class="clubs-selection-container hidden">
+            <h4>Выберите клубы для игры</h4>
+            <div class="clubs-actions">
+                <button id="config-select-all-clubs">Выбрать все</button>
+                <button id="config-deselect-all-clubs">Снять все</button>
+            </div>
+            <div id="config-clubs-list" class="clubs-list"></div>
+            <button id="config-confirm-clubs-btn">Подтвердить выбор</button>
+            <button id="config-reset-clubs-btn" class="btn-secondary">Сбросить выбор</button>
+        </div>
+        
         <button id="submit-create-game-btn">Создать игру</button>
         <button id="back-to-lobby-btn" class="btn-secondary">Назад</button>
     </div>
@@ -140,7 +177,20 @@
                 <input type="range" id="training-rounds-slider" min="1" max="16" value="5">
                 <span id="training-rounds-value">5</span>
             </div>
+            <button id="training-select-clubs-btn" class="btn-secondary" style="margin-top: 10px;">Выбрать клубы</button>
         </div>
+
+        <div id="training-clubs-selection" class="clubs-selection-container hidden">
+            <h4>Выберите клубы для тренировки</h4>
+            <div class="clubs-actions">
+                <button id="training-select-all-clubs">Выбрать все</button>
+                <button id="training-deselect-all-clubs">Снять все</button>
+            </div>
+            <div id="training-clubs-list" class="clubs-list"></div>
+            <button id="training-confirm-clubs-btn">Подтвердить выбор</button>
+            <button id="training-reset-clubs-btn" class="btn-secondary">Сбросить выбор</button>
+        </div>
+
         <button id="submit-training-game-btn">Начать тренировку</button>
         <button id="back-to-lobby-from-training-btn" class="btn-secondary">Назад</button>
     </div>
@@ -239,7 +289,8 @@
             disconnection: document.getElementById('disconnection-modal'),
         };
 
-        // --- Элементы DOM ---
+        // --- Элементы DOM (все переменные) ---
+        // ... (все переменные DOM остаются без изменений)
         const loginForm = document.getElementById('login-form'), loginNickname = document.getElementById('login-nickname'), loginPassword = document.getElementById('login-password'), loginStatus = document.getElementById('login-status');
         const registerForm = document.getElementById('register-form'), registerNickname = document.getElementById('register-nickname'), registerPassword = document.getElementById('register-password'), registerStatus = document.getElementById('register-status');
         const showRegisterFormBtn = document.getElementById('show-register-form'), showLoginFormBtn = document.getElementById('show-login-form');
@@ -274,7 +325,9 @@
         let clientState = {};
         let isMyTurn = false;
         let timerInterval, summaryInterval, gameStatusTimeout;
-        let cachedLeaderboardData = [];
+        
+        let selectedPvPClubs = null;
+        let selectedTrainingClubs = null;
 
         function showScreen(screenName) {
             Object.values(screens).forEach(screen => screen && screen.classList.add('hidden'));
@@ -348,6 +401,55 @@
                 if (timeBanks[activePlayerIndex] <= 0) clearInterval(timerInterval);
             }, 100);
         }
+        
+        function setupClubSelector(configPrefix) {
+            const selectClubsBtn = document.getElementById(`${configPrefix}-select-clubs-btn`);
+            const clubsSelectionDiv = document.getElementById(`${configPrefix}-clubs-selection`);
+            const roundsSlider = document.getElementById(`${configPrefix}-rounds-slider`);
+            const selectAllBtn = document.getElementById(`${configPrefix}-select-all-clubs`);
+            const deselectAllBtn = document.getElementById(`${configPrefix}-deselect-all-clubs`);
+            const confirmBtn = document.getElementById(`${configPrefix}-confirm-clubs-btn`);
+            const resetBtn = document.getElementById(`${configPrefix}-reset-clubs-btn`);
+
+            selectClubsBtn.addEventListener('click', () => {
+                clubsSelectionDiv.classList.remove('hidden');
+                roundsSlider.disabled = true;
+                selectClubsBtn.disabled = true;
+            });
+
+            resetBtn.addEventListener('click', () => {
+                clubsSelectionDiv.classList.add('hidden');
+                roundsSlider.disabled = false;
+                selectClubsBtn.disabled = false;
+                if (configPrefix === 'config') selectedPvPClubs = null;
+                else selectedTrainingClubs = null;
+            });
+
+            selectAllBtn.addEventListener('click', () => {
+                document.querySelectorAll(`#${configPrefix}-clubs-list input[type="checkbox"]`).forEach(cb => cb.checked = true);
+            });
+
+            deselectAllBtn.addEventListener('click', () => {
+                document.querySelectorAll(`#${configPrefix}-clubs-list input[type="checkbox"]`).forEach(cb => cb.checked = false);
+            });
+
+            confirmBtn.addEventListener('click', () => {
+                const selected = Array.from(document.querySelectorAll(`#${configPrefix}-clubs-list input:checked`)).map(cb => cb.value);
+                const minClubs = configPrefix === 'config' ? 3 : 1;
+                if (selected.length < minClubs) {
+                    alert(`Нужно выбрать как минимум ${minClubs} клуб(а).`);
+                    return;
+                }
+                
+                if (configPrefix === 'config') selectedPvPClubs = selected;
+                else selectedTrainingClubs = selected;
+
+                clubsSelectionDiv.classList.add('hidden');
+            });
+        }
+
+        setupClubSelector('config');
+        setupClubSelector('training');
 
         // --- Обработчики событий ---
         showRegisterFormBtn.addEventListener('click', () => { loginFormContainer.classList.add('hidden'); registerFormContainer.classList.remove('hidden'); });
@@ -373,7 +475,11 @@
         submitCreateGameBtn.addEventListener('click', () => {
             const timeBank = parseInt(configTimeMin.value) * 60 + parseInt(configTimeSec.value);
             if (isNaN(timeBank) || timeBank <= 0) { alert("Пожалуйста, введите корректное время."); return; }
-            const settings = { time_bank: timeBank, num_rounds: parseInt(configRoundsSlider.value) };
+            const settings = { 
+                time_bank: timeBank, 
+                num_rounds: selectedPvPClubs ? selectedPvPClubs.length : parseInt(configRoundsSlider.value),
+                selected_clubs: selectedPvPClubs
+            };
             socket.emit('create_game', { nickname: currentUserNickname, settings: settings });
             showScreen('lobby');
         });
@@ -381,7 +487,11 @@
         submitTrainingGameBtn.addEventListener('click', () => {
             const timeBank = parseInt(trainingTimeMin.value) * 60 + parseInt(trainingTimeSec.value);
             if (isNaN(timeBank) || timeBank <= 0) { alert("Пожалуйста, введите корректное время."); return; }
-            const settings = { time_bank: timeBank, num_rounds: parseInt(trainingRoundsSlider.value) };
+            const settings = { 
+                time_bank: timeBank, 
+                num_rounds: selectedTrainingClubs ? selectedTrainingClubs.length : parseInt(trainingRoundsSlider.value),
+                selected_clubs: selectedTrainingClubs
+            };
             socket.emit('start_game', { mode: 'solo', nickname: currentUserNickname, settings: settings });
         });
         
@@ -411,6 +521,7 @@
                 localStorage.setItem('rpl_quiz_nickname', currentUserNickname);
                 welcomeNickname.textContent = currentUserNickname;
                 showScreen('lobby');
+                socket.emit('get_league_clubs', { league: 'РПЛ' });
             } else { if (statusDiv) statusDiv.textContent = data.message; }
         });
 
@@ -426,7 +537,8 @@
                     gameItem.className = 'open-game-item';
                     const time_str = `${Math.floor(game.settings.time_bank / 60)}:${String(game.settings.time_bank % 60).padStart(2, '0')}`;
                     const buttonHtml = game.creator_sid === socket.id ? `<button class="cancel-btn btn-danger">Отменить</button>` : `<button class="play-btn" data-creator-sid="${game.creator_sid}">Играть</button>`;
-                    gameItem.innerHTML = `<div class="info"><span class="creator">${game.creator_nickname} (${game.creator_rating})</span><div class="details">РПЛ, ${game.settings.num_rounds} раундов, ${time_str}</div></div>${buttonHtml}`;
+                    const roundsText = game.settings.selected_clubs ? `${game.settings.selected_clubs.length} раундов (выбраны)` : `${game.settings.num_rounds} раундов`;
+                    gameItem.innerHTML = `<div class="info"><span class="creator">${game.creator_nickname} (${game.creator_rating})</span><div class="details">РПЛ, ${roundsText}, ${time_str}</div></div>${buttonHtml}`;
                     openGamesList.appendChild(gameItem);
                 });
             }
@@ -436,6 +548,19 @@
         socket.on('update_lobby_stats', (data) => {
             onlinePlayersCount.textContent = data.online_players;
             activeGamesCount.textContent = data.active_games;
+        });
+
+        socket.on('league_clubs_data', (data) => {
+            const configListDiv = document.getElementById('config-clubs-list');
+            const trainingListDiv = document.getElementById('training-clubs-list');
+            configListDiv.innerHTML = '';
+            trainingListDiv.innerHTML = '';
+
+            data.clubs.forEach(clubName => {
+                const itemHtml = `<label class="club-item"><input type="checkbox" value="${clubName}">${clubName}</label>`;
+                configListDiv.innerHTML += itemHtml;
+                trainingListDiv.innerHTML += itemHtml;
+            });
         });
 
         socket.on('leaderboard_data', (data) => {
@@ -467,10 +592,8 @@
                 default: message = '❌ Неверно!';
             }
             gameStatus.textContent = message;
-            
             gameStatusTimeout = setTimeout(() => {
-                // ИСПРАВЛЕНИЕ: Восстанавливаем правильное сообщение о ходе
-                if (Object.keys(clientState).length > 0) { // Проверяем, что состояние игры уже есть
+                if (Object.keys(clientState).length > 0) {
                     const currentTurnPlayer = clientState.players[clientState.currentPlayerIndex];
                     gameStatus.textContent = isMyTurn ? 'Ваш ход...' : `Ожидаем ход игрока ${currentTurnPlayer.nickname}...`;
                 }
@@ -589,7 +712,10 @@
                 currentUserNickname = savedNickname;
                 welcomeNickname.textContent = currentUserNickname;
                 showScreen('lobby');
-            } else { showScreen('auth'); }
+                socket.emit('get_league_clubs', { league: 'РПЛ' });
+            } else { 
+                showScreen('auth'); 
+            }
         });
     </script>
 </body>
