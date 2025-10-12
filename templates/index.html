@@ -253,13 +253,11 @@
         
         const configTimeMin = document.getElementById('config-time-min'), configTimeSec = document.getElementById('config-time-sec');
         const backToLobbyBtn = document.getElementById('back-to-lobby-btn'), submitCreateGameBtn = document.getElementById('submit-create-game-btn');
-        const configRoundsSlider = document.getElementById('config-rounds-slider');
-        const configRoundsValue = document.getElementById('config-rounds-value');
+        const configRoundsSlider = document.getElementById('config-rounds-slider'), configRoundsValue = document.getElementById('config-rounds-value');
 
         const trainingTimeMin = document.getElementById('training-time-min'), trainingTimeSec = document.getElementById('training-time-sec');
         const backToLobbyFromTrainingBtn = document.getElementById('back-to-lobby-from-training-btn'), submitTrainingGameBtn = document.getElementById('submit-training-game-btn');
-        const trainingRoundsSlider = document.getElementById('training-rounds-slider');
-        const trainingRoundsValue = document.getElementById('training-rounds-value');
+        const trainingRoundsSlider = document.getElementById('training-rounds-slider'), trainingRoundsValue = document.getElementById('training-rounds-value');
 
         const gameHeader = document.getElementById('game-header'), scoreDisplay = document.getElementById('score-display'), gameStatus = document.getElementById('game-status'), guessForm = document.getElementById('guess-form'), guessInput = document.getElementById('guess-input'), liveNamedList = document.getElementById('live-named-list'), surrenderBtn = document.getElementById('surrender-btn'), submitGuessBtn = document.getElementById('submit-guess-btn');
         const myTimerBox = document.getElementById('my-timer-box'), myTimerNickname = document.getElementById('my-timer-nickname'), myTimerValue = document.getElementById('my-timer-value');
@@ -293,7 +291,7 @@
         function updateGameUI(state) {
             clientState = state;
             const isSolo = state.mode === 'solo';
-            let myPlayerIndex = 0; // В соло всегда 0
+            let myPlayerIndex = 0;
             if (!isSolo) {
                 for (const i in state.players) { if (state.players[i].sid === socket.id) { myPlayerIndex = parseInt(i, 10); break; } }
             }
@@ -469,7 +467,14 @@
                 default: message = '❌ Неверно!';
             }
             gameStatus.textContent = message;
-            gameStatusTimeout = setTimeout(() => { gameStatus.textContent = 'Ваш ход...'; }, 2000);
+            
+            gameStatusTimeout = setTimeout(() => {
+                // ИСПРАВЛЕНИЕ: Восстанавливаем правильное сообщение о ходе
+                if (Object.keys(clientState).length > 0) { // Проверяем, что состояние игры уже есть
+                    const currentTurnPlayer = clientState.players[clientState.currentPlayerIndex];
+                    gameStatus.textContent = isMyTurn ? 'Ваш ход...' : `Ожидаем ход игрока ${currentTurnPlayer.nickname}...`;
+                }
+            }, 2000);
         });
 
         socket.on('round_summary', (data) => {
@@ -483,7 +488,7 @@
             summaryBotColumn.classList.toggle('hidden', isSolo);
 
             if (!isSolo) {
-                summaryScoreDisplay.textContent = `${data.players[0].nickname} ${data.scores[0]} : ${data.scores[1]} ${data.players[1].nickname}`;
+                summaryScoreDisplay.textContent = `${data.players[0].nickname} ${data.scores[0]} : ${data.scores[1]}`;
                 summaryBotNameHeader.textContent = data.players[1].nickname;
             }
             summaryHumanNameHeader.textContent = data.players[0].nickname;
@@ -525,7 +530,7 @@
 
         socket.on('game_over', (data) => {
             if (data.mode === 'solo') {
-                showScreen('lobby'); // Просто возвращаем в лобби
+                showScreen('lobby');
                 return;
             }
             showScreen('gameOver');
