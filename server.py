@@ -41,15 +41,15 @@ with app.app_context():
 
 # Глобальные переменные для отслеживания состояния
 active_games, open_games = {}, {}
-lobby_sids = set() # <-- НОВОЕ: Множество для отслеживания игроков в лобби
+lobby_sids = set() 
 
-# --- НОВЫЕ И ОБНОВЛЕННЫЕ ФУНКЦИИ ---
+# --- Функции ---
 
 def broadcast_lobby_stats():
     """Рассылает всем статистику по лобби."""
     stats = {
         'online_players': len(lobby_sids),
-        'active_games': len(active_games)
+        'active_games': len([g for g in active_games.values() if g['game'].mode == 'pvp'])
     }
     socketio.emit('update_lobby_stats', stats)
 
@@ -62,8 +62,6 @@ def remove_player_from_lobby(sid):
     """Удаляет игрока из лобби и обновляет статистику."""
     lobby_sids.discard(sid)
     broadcast_lobby_stats()
-
-# --- Остальные функции ---
 
 def get_or_create_user(nickname, password=None):
     user = User.query.filter_by(nickname=nickname).first()
@@ -141,7 +139,9 @@ class GameState:
         self.last_successful_guesser_index, self.previous_round_loser_index = None, None
         
         time_bank_setting = self.settings.get('time_bank', 90.0)
-        self.time_banks = {0: time_bank_setting, 1: time_bank_setting}
+        self.time_banks = {0: time_bank_setting}
+        if self.mode != 'solo':
+            self.time_banks[1] = time_bank_setting
         self.turn_start_time = 0
 
     def start_new_round(self):
@@ -156,7 +156,9 @@ class GameState:
         self.previous_round_loser_index = None
         
         time_bank_setting = self.settings.get('time_bank', 90.0)
-        self.time_banks = {0: time_bank_setting, 1: time_bank_setting}
+        self.time_banks = {0: time_bank_setting}
+        if self.mode != 'solo':
+            self.time_banks[1] = time_bank_setting
 
         self.current_club_name = self.game_clubs[self.current_round]
         player_objects = self.all_clubs_data[self.current_club_name]
@@ -192,9 +194,8 @@ class GameState:
         self.named_players.append({'full_name': player_data['full_name'], 'name': player_data['primary_name'], 'by': player_index})
         self.named_players_full_names.add(player_data['full_name'])
         self.last_successful_guesser_index = player_index
-        if self.mode != 'solo': self.switch_player()
+        if self.mode == 'pvp': self.switch_player()
 
-    def switch_player(self): self.current_player_index = 1 - self.current_player_index
     def is_round_over(self): return len(self.named_players) == len(self.players_for_comparison)
     def is_game_over(self):
         if self.current_round >= self.num_rounds - 1:
@@ -262,7 +263,7 @@ def start_game_loop(room_id):
         
         # Возвращаем игроков в лобби
         for player_info in game.players.values():
-            if player_info['sid'] != 'BOT':
+            if player_info['sid'] != 'BOT' and game.mode == 'pvp': # Возвращаем только PvP игроков
                 add_player_to_lobby(player_info['sid'])
 
         if game.mode == 'pvp':
@@ -288,11 +289,11 @@ def start_game_loop(room_id):
             socketio.emit('leaderboard_data', get_leaderboard_data())
             
         del active_games[room_id]
-        broadcast_lobby_stats() # Обновляем статистику, так как игра закончилась
+        broadcast_lobby_stats()
         socketio.emit('game_over', game_over_data, room=room_id)
         return
         
-    print(f"[GAME] Комната {room_id}: начинается раунд {game.current_round + 1}/{game.num_rounds}. Клуб: {game.current_club_name}. Первым ходит игрок {game.players[game.current_player_index]['nickname']}")
+    print(f"[GAME] Комната {room_id}: начинается раунд {game.current_round + 1}/{game.num_rounds}. Клуб: {game.current_club_name}.")
     socketio.emit('round_started', get_game_state_for_client(game, room_id), room=room_id)
     start_next_human_turn(room_id)
 
@@ -301,7 +302,7 @@ def show_round_summary_and_schedule_next(room_id):
     if not game_session: return
     game = game_session['game']
     p1_named_count = len([p for p in game.named_players if p['by'] == 0])
-    p2_named_count = len([p for p in game.named_players if p.get('by') == 1])
+    p2_named_count = len([p for p in game.named_players if p.get('by') == 1]) if game.mode != 'solo' else 0
     round_result = { 
         'club_name': game.current_club_name, 'p1_named': p1_named_count, 'p2_named': p2_named_count, 
         'result_type': game_session.get('last_round_end_reason', 'completed'),
@@ -390,7 +391,10 @@ def handle_request_skip_pause(data):
     game_session = active_games.get(room_id)
     if not game_session: return
     game = game_session['game']
-    if game.mode == 'pvp':
+    if game.mode == 'solo':
+        game_session['pause_id'] = None
+        start_game_loop(room_id)
+    elif game.mode == 'pvp':
         player_index = next((i for i, p in game.players.items() if p['sid'] == request.sid), -1)
         if player_index != -1:
             game_session['skip_votes'].add(player_index)
@@ -432,6 +436,23 @@ def handle_login_user(data):
         else:
             print(f"[AUTH] Игрок {nickname} успешно вошел в систему.")
             emit('auth_status', {'success': True, 'nickname': nickname, 'form': 'login'})
+
+@socketio.on('start_game')
+def handle_start_game(data):
+    sid, mode, nickname, settings = request.sid, data.get('mode'), data.get('nickname'), data.get('settings')
+    if mode == 'solo':
+        with app.app_context():
+            player_user = get_or_create_user(nickname)
+        player1_info_full = {'sid': sid, 'nickname': nickname, 'user_obj': player_user}
+        room_id = str(uuid.uuid4())
+        join_room(room_id)
+        
+        game = GameState(player1_info_full, all_clubs_data, mode='solo', settings=settings)
+        active_games[room_id] = {'game': game, 'turn_id': None, 'pause_id': None, 'skip_votes': set()}
+        
+        broadcast_lobby_stats()
+        print(f"[GAME] Игрок {nickname} начал тренировку. Комната: {room_id}")
+        start_game_loop(room_id)
 
 @socketio.on('create_game')
 def handle_create_game(data):
@@ -519,7 +540,7 @@ def handle_submit_guess(data):
         
         if game.is_round_over():
             game_session['last_round_end_reason'] = 'completed'
-            if game.mode != 'solo': game.scores[0] += 0.5; game.scores[1] += 0.5
+            if game.mode == 'pvp': game.scores[0] += 0.5; game.scores[1] += 0.5
             show_round_summary_and_schedule_next(room_id)
         else:
             start_next_human_turn(room_id)
