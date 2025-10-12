@@ -45,12 +45,14 @@ lobby_sids = set()
 
 # --- Функции ---
 
-def is_player_in_active_game(sid):
-    """Проверяет, находится ли игрок в любой активной игре."""
-    for game_session in active_games.values():
-        for player_info in game_session['game'].players.values():
-            if player_info['sid'] == sid:
-                return True
+def is_player_busy(sid):
+    """Проверяет, находится ли игрок в лобби в ожидании или в активной игре."""
+    # Проверка, не создал ли игрок игру, ожидающую соперника
+    if any(g['creator']['sid'] == sid for g in open_games.values()):
+        return True
+    # Проверка, не находится ли игрок в уже идущей игре
+    if any(p['sid'] == sid for g in active_games.values() for p in g['game'].players.values()):
+        return True
     return False
 
 def broadcast_lobby_stats():
@@ -453,8 +455,8 @@ def handle_login_user(data):
 def handle_start_game(data):
     sid, mode, nickname, settings = request.sid, data.get('mode'), data.get('nickname'), data.get('settings')
     
-    if is_player_in_active_game(sid):
-        print(f"[SECURITY] Игрок {sid} уже в игре, попытка начать новую отклонена.")
+    if is_player_busy(sid):
+        print(f"[SECURITY] Игрок {sid} уже занят, попытка начать тренировку отклонена.")
         return
 
     if mode == 'solo':
@@ -474,13 +476,9 @@ def handle_start_game(data):
 @socketio.on('create_game')
 def handle_create_game(data):
     sid, nickname, settings = request.sid, data.get('nickname'), data.get('settings')
-    
-    if is_player_in_active_game(sid):
-        print(f"[SECURITY] Игрок {sid} уже в игре, попытка создать новую отклонена.")
-        return
 
-    if any(g['creator']['sid'] == sid for g in open_games.values()):
-        print(f"[LOBBY] Игрок {nickname} уже создал игру. Отклонено.")
+    if is_player_busy(sid):
+        print(f"[SECURITY] Игрок {sid} уже занят, попытка создать игру отклонена.")
         return
             
     room_id = str(uuid.uuid4())
