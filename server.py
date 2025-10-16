@@ -43,6 +43,44 @@ with app.app_context():
 active_games, open_games = {}, {}
 lobby_sids = set()
 
+# --- НАЧАЛО БЛОКА ДЛЯ ВСТАВКИ ---
+
+def broadcast_lobby_stats():
+    """Отправляет всем клиентам актуальное количество игроков."""
+    stats = {
+        'players_in_lobby': len(lobby_sids),
+        'players_in_game': sum(len(g['game'].players) for g in active_games.values())
+    }
+    socketio.emit('lobby_stats_update', stats)
+
+def add_player_to_lobby(sid):
+    """Добавляет игрока в лобби и оповещает всех."""
+    if is_player_busy(sid): return
+    lobby_sids.add(sid)
+    print(f"[LOBBY] Игрок {sid} вошел в лобби. Всего в лобби: {len(lobby_sids)}")
+    broadcast_lobby_stats()
+
+def remove_player_from_lobby(sid):
+    """Удаляет игрока из лобби и оповещает всех."""
+    lobby_sids.discard(sid) # Используем discard вместо remove, чтобы не было ошибки, если sid уже удален
+    print(f"[LOBBY] Игрок {sid} покинул лобби. Всего в лобби: {len(lobby_sids)}")
+    broadcast_lobby_stats()
+
+def is_player_busy(sid):
+    """Проверяет, находится ли игрок уже в игре или в открытом лобби."""
+    # Проверка на участие в активной игре
+    for game_session in active_games.values():
+        for player_info in game_session['game'].players.values():
+            if player_info['sid'] == sid:
+                return True
+    # Проверка на создание открытой игры
+    for open_game in open_games.values():
+        if open_game['creator']['sid'] == sid:
+            return True
+    return False
+
+# --- КОНЕЦ БЛОКА ДЛЯ ВСТАВКИ ---
+
 def load_league_data(filename, league_name):
     """Загружает данные для одной лиги."""
     clubs_data = {}
